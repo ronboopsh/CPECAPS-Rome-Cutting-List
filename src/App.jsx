@@ -18,6 +18,17 @@ import {
   UserCheck,
 } from 'lucide-react'
 import CabinetWireframe from './components/CabinetWireframe'
+import RomeLogo from './components/RomeLogo'
+import CarpenterSplash from './components/CarpenterSplash'
+
+// ============================================================================
+// LOGO CONFIGURATION (EASY IMAGE SWAP):
+// Drop your own PNG file at `/public/logo.png` (or update `LOGO_IMAGE_PATH`
+// below to any image path/URL) and set `PREFER_CUSTOM_LOGO_PNG = true` to
+// override the built-in pixel-accurate "ROME MODULAR SYSTEMS" SVG replica.
+// ============================================================================
+export const LOGO_IMAGE_PATH = '/logo.png'
+export const PREFER_CUSTOM_LOGO_PNG = false
 
 const INITIAL_CUTTING_LIST = [
   { id: 1, num: '#1', part: 'Side Panel', l: 750, w: 500, h: 18, corner: 'None', material: 'MDF' },
@@ -81,6 +92,9 @@ const TOP_NAV_ITEMS = [
 ]
 
 export default function App() {
+  // Interactive Carpenter Home / Splash Screen state (default: true on initial load)
+  const [showHomeScreen, setShowHomeScreen] = useState(true)
+
   // Unit toggle: 'metric' (mm) or 'imperial' (in)
   const [unit, setUnit] = useState('metric')
 
@@ -168,17 +182,15 @@ export default function App() {
 
   // Handle Top Navigation Bar clicks
   const handleNavClick = (label) => {
-    if (label === 'Data') {
+    if (label === 'Home') {
+      setShowHomeScreen(true)
+    } else if (label === 'Data') {
       exportCsv()
     } else if (label === 'Browse') {
       fileInputRef.current?.click()
     } else if (label === 'Tools') {
       setZoom((z) => (z === 1 ? 1.15 : 1))
       triggerToast('Toggled 3D cabinet wireframe inspection zoom')
-    } else if (label === 'Home') {
-      setZoom(1)
-      setRotation(0)
-      triggerToast('Workspace reset to shop-floor home view')
     } else {
       triggerToast(`${label} module active`)
     }
@@ -277,6 +289,18 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#F3F4F6] text-zinc-900 flex flex-col select-none">
       {/* ============================================================
+          INTERACTIVE CARPENTER SPLASH / HOME SCREEN (INITIAL LOAD)
+         ============================================================ */}
+      {showHomeScreen && (
+        <CarpenterSplash
+          onEnterWorkshop={() => setShowHomeScreen(false)}
+          logoPath={LOGO_IMAGE_PATH}
+          preferCustomLogo={PREFER_CUSTOM_LOGO_PNG}
+          partsCount={parts.length}
+        />
+      )}
+
+      {/* ============================================================
           TWO-TIER INDUSTRIAL TOP BAR
          ============================================================ */}
       <header className="w-full shadow-xs">
@@ -290,8 +314,11 @@ export default function App() {
                   key={item.label}
                   type="button"
                   onClick={() => handleNavClick(item.label)}
-                  className="px-2.5 py-1 rounded text-zinc-200 hover:text-[#FACC15] hover:bg-zinc-800/80 font-medium transition-colors flex items-center gap-1"
+                  className="px-2.5 py-1 rounded text-zinc-200 hover:text-[#FACC15] hover:bg-zinc-800/80 font-medium transition-colors flex items-center gap-1.5"
                 >
+                  {item.label === 'Home' && (
+                    <RomeLogo variant="badge" className="w-4 h-4" />
+                  )}
                   <span>{item.label}</span>
                   {item.hasDropdown && (
                     <span className="text-[11px] text-zinc-400 group-hover:text-[#FACC15]">
@@ -360,17 +387,30 @@ export default function App() {
           </div>
         </div>
 
-        {/* TIER 2: Main Header Banner (Branding & Status Strip) */}
+        {/* TIER 2: Main Header Banner (Branding & Status Strip with <RomeLogo />) */}
         <div className="bg-white border-b border-gray-200">
-          <div className="max-w-[1680px] mx-auto px-4 lg:px-6 py-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            {/* Left Side: Prominent "Rome Cabinets" Industrial Typography + Carpentry/Cube Logo Badge */}
+          <div className="max-w-[1680px] mx-auto px-4 lg:px-6 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            {/* Left Side: Official Rome Modular Systems Logo + Prominent "Rome Cabinets" Typography */}
             <div className="flex items-center gap-3.5">
-              <div className="w-10 h-10 rounded-xl bg-[#18181B] border-2 border-[#FACC15] flex items-center justify-center shadow-xs shrink-0">
-                <Box className="w-5 h-5 text-[#FACC15] stroke-[2.2]" />
-              </div>
-              <div className="flex items-baseline gap-2">
+              <button
+                type="button"
+                title="Open Carpenter Splash Screen"
+                onClick={() => setShowHomeScreen(true)}
+                className="rounded-lg overflow-hidden shadow-xs hover:opacity-95 transition-opacity focus:outline-none focus:ring-2 focus:ring-[#FACC15]"
+              >
+                <RomeLogo
+                  logoPath={LOGO_IMAGE_PATH}
+                  preferImage={PREFER_CUSTOM_LOGO_PNG}
+                  variant="full"
+                  className="h-12 w-auto"
+                />
+              </button>
+              <div className="flex items-baseline gap-2.5">
                 <h1 className="text-2xl font-extrabold tracking-tight text-zinc-950 uppercase">
-                  Rome <span className="bg-[#FACC15] px-2 py-0.5 rounded text-zinc-950">Cabinets</span>
+                  Rome{' '}
+                  <span className="bg-[#FACC15] px-2 py-0.5 rounded text-zinc-950">
+                    Cabinets
+                  </span>
                 </h1>
                 <span className="hidden md:inline-block text-[11px] font-bold uppercase tracking-widest text-zinc-500 border border-zinc-300 rounded px-1.5 py-0.5">
                   CNC · CAD v2.4

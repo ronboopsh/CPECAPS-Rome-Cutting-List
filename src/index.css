@@ -10,7 +10,7 @@
   }
 }
 
-/* Custom subtle scrollbars for tables if needed */
+/* Custom subtle scrollbars for tables */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -24,4 +24,147 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #9CA3AF;
+}
+
+/* ============================================================================
+   CARPENTER SPLASH SCREEN — FLYING OUTLINE TOOLS KEYFRAME PHYSICS
+   Cubic-bezier(0.16, 1, 0.3, 1) deceleration + gentle workshop float
+   ============================================================================ */
+
+@keyframes flyInTopLeft {
+  0% {
+    opacity: 0;
+    transform: translate3d(-420px, -320px, 0) rotate(-140deg) scale(0.65);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+}
+
+@keyframes flyInBottomLeft {
+  0% {
+    opacity: 0;
+    transform: translate3d(-440px, 340px, 0) rotate(45deg) scale(0.7);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+}
+
+@keyframes flyInTopRight {
+  0% {
+    opacity: 0;
+    transform: translate3d(440px, -320px, 0) rotate(55deg) scale(0.7);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+}
+
+@keyframes flyInRight {
+  0% {
+    opacity: 0;
+    transform: translate3d(520px, 40px, 0) rotate(-30deg) scale(0.72);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+}
+
+@keyframes flyInBottomRight {
+  0% {
+    opacity: 0;
+    transform: translate3d(440px, 340px, 0) rotate(-40deg) scale(0.7);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+}
+
+@keyframes flyInLeft {
+  0% {
+    opacity: 0;
+    transform: translate3d(-520px, -20px, 0) rotate(35deg) scale(0.72);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+}
+
+@keyframes flyInTop {
+  0% {
+    opacity: 0;
+    transform: translate3d(0px, -380px, 0) rotate(-25deg) scale(0.7);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+}
+
+@keyframes flyInBottom {
+  0% {
+    opacity: 0;
+    transform: translate3d(0px, 380px, 0) rotate(25deg) scale(0.7);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+}
+
+@keyframes idleFloatSlow {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(1.5deg);
+  }
+}
+
+@keyframes idleSpinSaw {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-6px) rotate(14deg);
+  }
+}
+
+.tool-fly-top-left {
+  animation: flyInTopLeft 1.15s cubic-bezier(0.16, 1, 0.3, 1) 0.05s both;
+}
+.tool-fly-bottom-left {
+  animation: flyInBottomLeft 1.2s cubic-bezier(0.16, 1, 0.3, 1) 0.14s both;
+}
+.tool-fly-top-right {
+  animation: flyInTopRight 1.18s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
+}
+.tool-fly-right {
+  animation: flyInRight 1.25s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
+}
+.tool-fly-bottom-right {
+  animation: flyInBottomRight 1.22s cubic-bezier(0.16, 1, 0.3, 1) 0.18s both;
+}
+.tool-fly-left {
+  animation: flyInLeft 1.2s cubic-bezier(0.16, 1, 0.3, 1) 0.12s both;
+}
+.tool-fly-top {
+  animation: flyInTop 1.15s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
+}
+.tool-fly-bottom {
+  animation: flyInBottom 1.24s cubic-bezier(0.16, 1, 0.3, 1) 0.22s both;
+}
+
+.tool-idle-float {
+  animation: idleFloatSlow 5.5s ease-in-out infinite;
+}
+.tool-idle-saw {
+  animation: idleSpinSaw 7s ease-in-out infinite;
 }

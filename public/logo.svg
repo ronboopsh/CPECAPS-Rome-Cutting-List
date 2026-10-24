@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 210" fill="none">
+  <!-- Solid black background container -->
+  <rect width="520" height="210" rx="14" fill="#050505" />
+
+  <!-- Top thick horizontal golden-yellow bar -->
+  <rect x="24" y="18" width="472" height="14" rx="2" fill="#F5A623" />
+
+  <!-- CENTER ROW: R + [2x2 Color Grid "O"] + M + E -->
+  <!-- Bold White "R" -->
+  <path
+    d="M 38 48 H 92 C 114 48 126 58 126 75 C 126 88 118 97 104 101 L 129 136 H 102 L 81 104 H 62 V 136 H 38 V 48 Z M 62 67 V 87 H 89 C 98 87 103 83 103 77 C 103 71 98 67 89 67 H 62 Z"
+    fill="#FFFFFF"
+  />
+
+  <!-- 2x2 Grid of 4 Rounded Squares acting as the "O" -->
+  <!-- Top-Left: Yellow (#E6E632) -->
+  <rect x="148" y="48" width="41" height="40" rx="7" fill="#E6E632" />
+  <!-- Top-Right: Cyan (#19E6E6) -->
+  <rect x="197" y="48" width="41" height="40" rx="7" fill="#19E6E6" />
+  <!-- Bottom-Left: Green (#19D119) -->
+  <rect x="148" y="96" width="41" height="40" rx="7" fill="#19D119" />
+  <!-- Bottom-Right: Red (#E61919) -->
+  <rect x="197" y="96" width="41" height="40" rx="7" fill="#E61919" />
+
+  <!-- Bold White "M" -->
+  <path
+    d="M 262 48 H 288 L 314 98 L 340 48 H 366 V 136 H 343 V 83 L 320 126 H 308 L 285 83 V 136 H 262 V 48 Z"
+    fill="#FFFFFF"
+  />
+
+  <!-- Bold White "E" -->
+  <path
+    d="M 392 48 H 478 V 68 H 416 V 82 H 470 V 101 H 416 V 116 H 480 V 136 H 392 V 48 Z"
+    fill="#FFFFFF"
+  />
+
+  <!-- Bottom thick horizontal golden-yellow bar -->
+  <rect x="24" y="150" width="472" height="14" rx="2" fill="#F5A623" />
+
+  <!-- Bottom wide-tracked subtitle in white: "M O D U L A R   S Y S T E M S" -->
+  <text
+    x="260"
+    y="189"
+    text-anchor="middle"
+    fill="#FFFFFF"
+    font-family="Inter, Arial, Helvetica, sans-serif"
+    font-weight="800"
+    font-size="18.5"
+    letter-spacing="11.5"
+  >
+    MODULAR SYSTEMS
+  </text>
+</svg>

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Dark rounded square background (Facebook-style tab badge) -->
+  <rect width="64" height="64" rx="14" fill="#09090B" />
+  <rect x="1.5" y="1.5" width="61" height="61" rx="12.5" stroke="#27272A" stroke-width="1.5" />
+
+  <!-- Top & bottom horizontal golden-yellow bars -->
+  <rect x="8" y="7" width="48" height="4.5" rx="2" fill="#F5A623" />
+  <rect x="8" y="52.5" width="48" height="4.5" rx="2" fill="#F5A623" />
+
+  <!-- Signature Rome Cabinets 2x2 four-color rounded square grid -->
+  <!-- Top-Left: Yellow (#E6E632) -->
+  <rect x="13" y="15.5" width="17" height="15.5" rx="3.5" fill="#E6E632" />
+  <!-- Top-Right: Cyan (#19E6E6) -->
+  <rect x="34" y="15.5" width="17" height="15.5" rx="3.5" fill="#19E6E6" />
+  <!-- Bottom-Left: Green (#19D119) -->
+  <rect x="13" y="33" width="17" height="15.5" rx="3.5" fill="#19D119" />
+  <!-- Bottom-Right: Red (#E61919) -->
+  <rect x="34" y="33" width="17" height="15.5" rx="3.5" fill="#E61919" />
+</svg>
