@@ -16,10 +16,24 @@ import {
   FileSpreadsheet,
   CheckCircle2,
   UserCheck,
+  Camera,
+  GitMerge,
+  ArrowDownWideNarrow,
+  CheckSquare,
+  Square,
+  Sparkles,
+  FileCode2,
 } from 'lucide-react'
 import CabinetWireframe from './components/CabinetWireframe'
 import RomeLogo from './components/RomeLogo'
 import CarpenterSplash from './components/CarpenterSplash'
+import OcrReviewModal, { DEFAULT_OCR_EXTRACTED_ROWS } from './components/OcrReviewModal'
+import {
+  PROJECT_SCHEDULES,
+  getRawSelectedParts,
+  aggregateProjectCutlists,
+  sortPartsForRipCuts,
+} from './utils/aggregator'
 
 // ============================================================================
 // LOGO CONFIGURATION (EASY IMAGE SWAP):
@@ -30,20 +44,20 @@ import CarpenterSplash from './components/CarpenterSplash'
 export const LOGO_IMAGE_PATH = '/logo.png'
 export const PREFER_CUSTOM_LOGO_PNG = false
 
+const INITIAL_SELECTED_JOBS = ['Job #1', 'Job #2']
+
 const INITIAL_CUTTING_LIST = [
-  { id: 1, num: '#1', part: 'Side Panel', l: 750, w: 500, h: 18, corner: 'None', material: 'MDF' },
-  { id: 2, num: '#2', part: 'Shelf', l: 564, w: 480, h: 18, corner: 'Edge 1x', material: 'Plywood' },
-  { id: 3, num: '#3', part: 'Shelf', l: 564, w: 480, h: 18, corner: 'None', material: 'Plywood' },
-  { id: 4, num: '#4', part: 'Side Panel', l: 750, w: 500, h: 18, corner: 'Edge 1x', material: 'MDF' },
-  { id: 5, num: '#5', part: 'Side Panel', l: 750, w: 500, h: 18, corner: 'Edge 1x', material: 'MDF' },
-  { id: 7, num: '#7', part: 'Top Panel', l: 600, w: 500, h: 18, corner: 'Edge 1x', material: 'MDF' },
-  { id: 8, num: '#8', part: 'Side Panel', l: 750, w: 500, h: 18, corner: 'Edge 1x', material: 'MDF' },
-  { id: 9, num: '#9', part: 'Shelves', l: 564, w: 480, h: 18, corner: 'None', material: 'MDF' },
-  { id: 10, num: '#10', part: 'Side Panel', l: 750, w: 500, h: 18, corner: 'Edge 1x', material: 'MDF' },
-  { id: 11, num: '#11', part: 'Shelves', l: 750, w: 500, h: 18, corner: 'Edge 1x', material: 'Plywood' },
-  { id: 12, num: '#12', part: 'Top Panel', l: 600, w: 500, h: 18, corner: 'None', material: 'MDF' },
-  { id: 13, num: '#13', part: 'Top Panel', l: 600, w: 500, h: 18, corner: 'Edge 1x', material: 'Plywood' },
-  { id: 14, num: '#14', part: 'Shelves', l: 564, w: 480, h: 18, corner: 'Edge 1x', material: 'MDF' },
+  { id: 1, num: '#1', part: 'Side Panel', qty: 2, l: 750, w: 500, h: 18, corner: 'None', material: '18mm Marine Plywood', source_jobs: ['Job #1'] },
+  { id: 2, num: '#2', part: 'Shelf', qty: 2, l: 564, w: 480, h: 18, corner: 'Edge 1x', material: '18mm Marine Plywood', source_jobs: ['Job #1'] },
+  { id: 3, num: '#3', part: 'Shelf', qty: 1, l: 564, w: 480, h: 18, corner: 'None', material: '18mm Marine Plywood', source_jobs: ['Job #1'] },
+  { id: 4, num: '#4', part: 'Side Panel', qty: 2, l: 750, w: 500, h: 18, corner: 'Edge 1x', material: '18mm Marine Plywood', source_jobs: ['Job #2'] },
+  { id: 5, num: '#5', part: 'Wardrobe Tall Gable', qty: 2, l: 2100, w: 600, h: 18, corner: 'Edge 1x', material: '18mm Marine Plywood', source_jobs: ['Job #2'] },
+  { id: 7, num: '#6', part: 'Top Panel', qty: 1, l: 600, w: 500, h: 18, corner: 'Edge 1x', material: 'MDF', source_jobs: ['Job #1'] },
+  { id: 8, num: '#7', part: 'Fixed Shelf', qty: 3, l: 564, w: 480, h: 18, corner: 'Edge 1x', material: '18mm Marine Plywood', source_jobs: ['Job #2'] },
+  { id: 9, num: '#8', part: 'Top Stretcher', qty: 2, l: 564, w: 100, h: 18, corner: 'None', material: '18mm Marine Plywood', source_jobs: ['Job #1'] },
+  { id: 10, num: '#9', part: 'Cabinet Door Slab', qty: 2, l: 746, w: 296, h: 18, corner: 'Edge 2x', material: 'MDF', source_jobs: ['Job #1'] },
+  { id: 11, num: '#10', part: 'Top Panel', qty: 2, l: 600, w: 500, h: 18, corner: 'Edge 1x', material: 'MDF', source_jobs: ['Job #2'] },
+  { id: 12, num: '#11', part: 'Valance Rail', qty: 2, l: 864, w: 100, h: 18, corner: 'None', material: '18mm Marine Plywood', source_jobs: ['Job #2'] },
 ]
 
 const INITIAL_INVENTORY = [
@@ -53,8 +67,8 @@ const INITIAL_INVENTORY = [
     l: 2440,
     w: 1220,
     h: 18,
-    material: 'MDF',
-    usedPercent: 78,
+    material: '18mm Marine Plywood',
+    usedPercent: 82,
     barColor: 'bg-[#FACC15]', // Bright Industrial Yellow fill
     iconType: 'clipboard',
   },
@@ -76,7 +90,7 @@ const INITIAL_INVENTORY = [
     w: 1220,
     h: 18,
     material: 'MDF',
-    usedPercent: 78,
+    usedPercent: 76,
     barColor: 'bg-[#CA8A04]', // Deep Gold fill
     iconType: 'sheet',
   },
@@ -98,6 +112,12 @@ export default function App() {
   // Unit toggle: 'metric' (mm) or 'imperial' (in)
   const [unit, setUnit] = useState('metric')
 
+  // Multi-Project Cutlist Aggregator & Rip Sorter state
+  const [selectedJobs, setSelectedJobs] = useState(INITIAL_SELECTED_JOBS)
+  const [isConsolidated, setIsConsolidated] = useState(false)
+  const [isRipSorted, setIsRipSorted] = useState(false)
+  const [aggregationStats, setAggregationStats] = useState(null)
+
   // Cutting list state (#3 active by default per specification)
   const [parts, setParts] = useState(INITIAL_CUTTING_LIST)
   const [selectedId, setSelectedId] = useState(3)
@@ -106,10 +126,17 @@ export default function App() {
   const [editingId, setEditingId] = useState(null)
   const [editDraft, setEditDraft] = useState(null)
 
-  // File dropzone state
+  // Dual Upload Card state: 'cad' ("Upload 3D CAD (.dae, .obj, .csv)") | 'ocr' ("Scan Paper Cutlist (.png, .jpg)")
+  const [uploadMode, setUploadMode] = useState('cad')
   const [isDragging, setIsDragging] = useState(false)
   const [uploadedFile, setUploadedFile] = useState(null)
-  const fileInputRef = useRef(null)
+  const cadInputRef = useRef(null)
+  const ocrInputRef = useRef(null)
+
+  // OCR Human-in-the-Loop Verification Modal state
+  const [isOcrModalOpen, setIsOcrModalOpen] = useState(false)
+  const [ocrFileName, setOcrFileName] = useState('workshop_cutlist_scan_01.jpg')
+  const [ocrPreviewUrl, setOcrPreviewUrl] = useState(null)
 
   // 3D Design viewer controls
   const [zoom, setZoom] = useState(1)
@@ -125,7 +152,7 @@ export default function App() {
     l: '2440',
     w: '1220',
     h: '18',
-    material: 'MDF',
+    material: '18mm Marine Plywood',
   })
 
   // Status toast for top menu actions
@@ -135,7 +162,7 @@ export default function App() {
     setToastMessage(msg)
     setTimeout(() => {
       setToastMessage((prev) => (prev === msg ? null : prev))
-    }, 2600)
+    }, 3000)
   }
 
   // Format dimension value according to Metric (mm) or Imperial (in)
@@ -145,16 +172,130 @@ export default function App() {
     return inches >= 10 ? inches.toFixed(1) : inches.toFixed(2)
   }
 
+  // ==========================================================================
+  // MODULE 1 HANDLERS: MULTI-PROJECT SELECTOR, CONSOLIDATE & RIP SORTER
+  // ==========================================================================
+  const handleToggleJob = (jobId) => {
+    setSelectedJobs((prev) => {
+      const exists = prev.includes(jobId)
+      const nextJobs = exists
+        ? prev.filter((id) => id !== jobId)
+        : [...prev, jobId]
+      const finalJobs = nextJobs.length > 0 ? nextJobs : [jobId]
+      const rawParts = getRawSelectedParts(finalJobs, PROJECT_SCHEDULES)
+      setParts(rawParts)
+      setIsConsolidated(false)
+      setIsRipSorted(false)
+      setAggregationStats(null)
+      triggerToast(`Loaded schedules: ${finalJobs.join(', ')} (${rawParts.length} rows)`)
+      return finalJobs
+    })
+  }
+
+  const handleConsolidateJobs = () => {
+    const baseList =
+      parts.length > 0 ? parts : getRawSelectedParts(selectedJobs, PROJECT_SCHEDULES)
+    const { parts: mergedParts, stats } = aggregateProjectCutlists(baseList)
+    setParts(mergedParts)
+    setIsConsolidated(true)
+    setAggregationStats((prev) => ({
+      ...(prev || {}),
+      ...stats,
+    }))
+    triggerToast(
+      `Consolidated ${stats.totalRawRows} rows into ${stats.totalConsolidatedRows} unique parts (${stats.totalPieces} pcs)`
+    )
+  }
+
+  const handleSortForRipCuts = () => {
+    const { parts: sortedParts, fenceSetupsCount } = sortPartsForRipCuts(parts)
+    setParts(sortedParts)
+    setIsRipSorted(true)
+    setAggregationStats((prev) => ({
+      ...(prev || {}),
+      fenceSetupsCount,
+    }))
+    triggerToast(
+      `Sorted for Table Saw Rip Cuts (W ↓ then L ↓) — ${fenceSetupsCount} fence setups`
+    )
+  }
+
+  // ==========================================================================
+  // MODULE 2 HANDLERS: DUAL UPLOAD & OCR REVIEW MODAL
+  // ==========================================================================
+  const triggerOcrIntake = (fileObj = null, customLabel = null) => {
+    if (fileObj) {
+      setOcrFileName(fileObj.name)
+      setUploadedFile(fileObj.name)
+      if (fileObj.type && fileObj.type.startsWith('image/')) {
+        const objectUrl = URL.createObjectURL(fileObj)
+        setOcrPreviewUrl(objectUrl)
+      } else {
+        setOcrPreviewUrl(null)
+      }
+    } else {
+      const name = customLabel || 'galvez_kitchen_handwritten_cutlist.jpg'
+      setOcrFileName(name)
+      setUploadedFile(name)
+      setOcrPreviewUrl(null)
+    }
+    setIsOcrModalOpen(true)
+    triggerToast('OCR Vision Pipeline complete — 4 cells (<80% conf) flagged for review')
+  }
+
+  const handleFileReceive = (file) => {
+    if (!file) return
+    const ext = file.name.split('.').pop()?.toLowerCase() || ''
+    const isImage =
+      ['png', 'jpg', 'jpeg', 'webp', 'bmp'].includes(ext) ||
+      (file.type && file.type.startsWith('image/'))
+
+    if (uploadMode === 'ocr' || isImage) {
+      setUploadMode('ocr')
+      triggerOcrIntake(file)
+      return
+    }
+
+    setUploadedFile(file.name)
+    triggerToast(`Parsed 3D CAD file "${file.name}" into shop-floor coordinator`)
+  }
+
+  const handleDrop = (e) => {
+    e.preventDefault()
+    setIsDragging(false)
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleFileReceive(e.dataTransfer.files[0])
+    }
+  }
+
+  const handleCommitOcrParts = (verifiedOcrRows) => {
+    setParts((prev) => {
+      const startIndex = prev.length + 1
+      const appended = verifiedOcrRows.map((row, idx) => ({
+        ...row,
+        id: Date.now() + idx,
+        num: `#${startIndex + idx}`,
+      }))
+      return [...prev, ...appended]
+    })
+    setIsOcrModalOpen(false)
+    triggerToast(
+      `Committed ${verifiedOcrRows.length} verified OCR parts to active Cutting List`
+    )
+  }
+
   // Export CSV helper
   const exportCsv = () => {
     const headers = [
       '#',
       'Part',
+      'Qty',
       `L (${unit === 'metric' ? 'mm' : 'in'})`,
       `W (${unit === 'metric' ? 'mm' : 'in'})`,
       `H (${unit === 'metric' ? 'mm' : 'in'})`,
       'Corner',
       'Material',
+      'Source Jobs',
     ]
     const csvRows = [
       headers.join(','),
@@ -162,11 +303,13 @@ export default function App() {
         [
           p.num,
           `"${p.part}"`,
+          p.qty || 1,
           formatDim(p.l),
           formatDim(p.w),
           formatDim(p.h),
           `"${p.corner}"`,
           `"${p.material}"`,
+          `"${(p.source_jobs || ['Job #1']).join(' + ')}"`,
         ].join(',')
       ),
     ]
@@ -187,27 +330,16 @@ export default function App() {
     } else if (label === 'Data') {
       exportCsv()
     } else if (label === 'Browse') {
-      fileInputRef.current?.click()
+      if (uploadMode === 'ocr') {
+        ocrInputRef.current?.click()
+      } else {
+        cadInputRef.current?.click()
+      }
     } else if (label === 'Tools') {
       setZoom((z) => (z === 1 ? 1.15 : 1))
       triggerToast('Toggled 3D cabinet wireframe inspection zoom')
     } else {
       triggerToast(`${label} module active`)
-    }
-  }
-
-  // File Upload / Drag & Drop handlers
-  const handleFileReceive = (file) => {
-    if (!file) return
-    setUploadedFile(file.name)
-    triggerToast(`Loaded "${file.name}" into shop-floor coordinator`)
-  }
-
-  const handleDrop = (e) => {
-    e.preventDefault()
-    setIsDragging(false)
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileReceive(e.dataTransfer.files[0])
     }
   }
 
@@ -220,7 +352,7 @@ export default function App() {
   const startEditing = (e, item) => {
     e.stopPropagation()
     setEditingId(item.id)
-    setEditDraft({ ...item })
+    setEditDraft({ ...item, qty: item.qty || 1 })
   }
 
   const saveEdit = (e) => {
@@ -231,6 +363,7 @@ export default function App() {
         item.id === editingId
           ? {
               ...editDraft,
+              qty: Math.max(1, Number(editDraft.qty) || 1),
               l: Number(editDraft.l) || 0,
               w: Number(editDraft.w) || 0,
               h: Number(editDraft.h) || 0,
@@ -279,12 +412,13 @@ export default function App() {
     }
 
     setInventory((prev) => [...prev, created])
-    setNewSheet({ l: '2440', w: '1220', h: '18', material: 'MDF' })
+    setNewSheet({ l: '2440', w: '1220', h: '18', material: '18mm Marine Plywood' })
     triggerToast(`Added Sheet #${nextNum} (${lVal} × ${wVal} × ${hVal} mm ${matVal})`)
   }
 
   const selectedPartObj = parts.find((p) => p.id === selectedId) || null
   const nextInventoryIndex = inventory.length + 1
+  const totalPiecesCount = parts.reduce((acc, p) => acc + (Number(p.qty) || 1), 0)
 
   return (
     <div className="min-h-screen bg-[#F3F4F6] text-zinc-900 flex flex-col select-none">
@@ -413,7 +547,7 @@ export default function App() {
                   </span>
                 </h1>
                 <span className="hidden md:inline-block text-[11px] font-bold uppercase tracking-widest text-zinc-500 border border-zinc-300 rounded px-1.5 py-0.5">
-                  CNC · CAD v2.4
+                  CNC · CAD · OCR v2.5
                 </span>
               </div>
             </div>
@@ -430,14 +564,14 @@ export default function App() {
                 </span>
                 <span className="text-zinc-300">|</span>
                 <span className="font-semibold text-zinc-700">
-                  {parts.length} Loaded Parts
+                  {parts.length} Rows ({totalPiecesCount} Pcs)
                 </span>
                 <span className="text-zinc-300">|</span>
                 <button
                   type="button"
                   onClick={() =>
                     triggerToast(
-                      `Shop Efficiency: 78% Yield across ${inventory.length} Stock Sheets`
+                      `Shop Efficiency: 82% Yield across ${inventory.length} Stock Sheets`
                     )
                   }
                   className="hover:text-zinc-950 hover:underline decoration-[#FACC15] decoration-2 underline-offset-2 transition-colors"
@@ -467,43 +601,107 @@ export default function App() {
       <div className="w-full max-w-[1680px] mx-auto px-4 lg:px-6 py-4 flex-1 flex flex-col">
         <main className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 items-stretch">
           {/* ------------------------------------------------------------
-              A. LEFT COLUMN (Upload Zone + 3D Isometric Technical Wireframe)
+              A. LEFT COLUMN (Dual CAD / OCR Upload Card + 3D Wireframe)
              ------------------------------------------------------------ */}
           <section className="lg:col-span-3 flex flex-col gap-4">
-            {/* CARD 1: "DROP FILES HERE" Upload Zone */}
+            {/* CARD 1: Dual-Mode Upload Zone (3D CAD vs. Paper Cutlist OCR) */}
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+              {/* Dual Upload Tabs */}
+              <div className="grid grid-cols-2 gap-1.5 bg-zinc-900 p-1 rounded-xl mb-3">
+                <button
+                  type="button"
+                  onClick={() => setUploadMode('cad')}
+                  className={`py-2 px-2 rounded-lg text-[11px] font-extrabold leading-tight flex flex-col items-center justify-center gap-1 transition-all ${
+                    uploadMode === 'cad'
+                      ? 'bg-[#FACC15] text-zinc-950 shadow-xs'
+                      : 'text-zinc-300 hover:text-white'
+                  }`}
+                >
+                  <FileCode2 className="w-3.5 h-3.5" />
+                  <span>Upload 3D CAD (.dae, .obj, .csv)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setUploadMode('ocr')}
+                  className={`py-2 px-2 rounded-lg text-[11px] font-extrabold leading-tight flex flex-col items-center justify-center gap-1 transition-all ${
+                    uploadMode === 'ocr'
+                      ? 'bg-[#FACC15] text-zinc-950 shadow-xs'
+                      : 'text-zinc-300 hover:text-white'
+                  }`}
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Scan Paper Cutlist (.png, .jpg)</span>
+                </button>
+              </div>
+
+              {/* Hidden file inputs for CAD and OCR Camera/Image */}
               <input
-                ref={fileInputRef}
+                ref={cadInputRef}
                 type="file"
-                accept=".skp,.csv,.json"
+                accept=".dae,.obj,.csv,.skp,.json"
                 className="hidden"
                 onChange={(e) => handleFileReceive(e.target.files?.[0])}
               />
+              <input
+                ref={ocrInputRef}
+                type="file"
+                accept=".png,.jpg,.jpeg,.webp,image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => handleFileReceive(e.target.files?.[0])}
+              />
+
+              {/* Dropzone Area */}
               <div
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() =>
+                  uploadMode === 'ocr'
+                    ? ocrInputRef.current?.click()
+                    : cadInputRef.current?.click()
+                }
                 onDragOver={(e) => {
                   e.preventDefault()
                   setIsDragging(true)
                 }}
                 onDragLeave={() => setIsDragging(false)}
                 onDrop={handleDrop}
-                className={`group cursor-pointer rounded-xl border-2 border-dashed transition-all px-4 py-7 flex flex-col items-center justify-center text-center ${
+                className={`group cursor-pointer rounded-xl border-2 border-dashed transition-all px-4 py-5 flex flex-col items-center justify-center text-center ${
                   isDragging
                     ? 'border-[#EAB308] bg-yellow-50/70'
                     : 'border-zinc-300 hover:border-[#FACC15] hover:bg-yellow-50/30'
                 }`}
               >
-                <div className="w-11 h-11 rounded-full bg-zinc-900 group-hover:bg-[#FACC15] border border-zinc-800 group-hover:border-[#EAB308] flex items-center justify-center mb-3 text-[#FACC15] group-hover:text-zinc-950 transition-colors shadow-xs">
-                  <Upload className="w-5 h-5 stroke-[2.2]" />
+                <div className="w-11 h-11 rounded-full bg-zinc-900 group-hover:bg-[#FACC15] border border-zinc-800 group-hover:border-[#EAB308] flex items-center justify-center mb-2.5 text-[#FACC15] group-hover:text-zinc-950 transition-colors shadow-xs">
+                  {uploadMode === 'ocr' ? (
+                    <Camera className="w-5 h-5 stroke-[2.2]" />
+                  ) : (
+                    <Upload className="w-5 h-5 stroke-[2.2]" />
+                  )}
                 </div>
-                <p className="text-[13px] font-extrabold tracking-wide text-zinc-900 uppercase">
-                  DROP FILES HERE
+                <p className="text-[12.5px] font-extrabold tracking-wide text-zinc-900 uppercase">
+                  {uploadMode === 'ocr'
+                    ? 'DROP PAPER CUTLIST PHOTO HERE'
+                    : 'DROP 3D CAD FILES HERE'}
                 </p>
-                <p className="text-xs text-zinc-500 mt-1">
+                <p className="text-[11px] text-zinc-500 mt-1">
                   {uploadedFile
                     ? `Loaded: ${uploadedFile}`
-                    : 'Drag your SketchUp (.skp) files here'}
+                    : uploadMode === 'ocr'
+                    ? 'Drag & drop .png / .jpg or tap to capture via camera'
+                    : 'Supports .dae, .obj, .csv, and SketchUp .skp'}
                 </p>
+              </div>
+
+              {/* Quick OCR Demo Trigger Button for Immediate Inspection */}
+              <div className="mt-2.5 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => triggerOcrIntake(null, 'galvez_shop_sheet_scan.jpg')}
+                  className="w-full py-2 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-[#FACC15] text-[11.5px] font-bold flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Open OCR Vision Review Modal (Sample Scan)</span>
+                </button>
               </div>
             </div>
 
@@ -567,16 +765,17 @@ export default function App() {
           </section>
 
           {/* ------------------------------------------------------------
-              B. CENTER COLUMN (Cutting List Master Table)
+              B. CENTER COLUMN (Cutting List + Multi-Project Aggregator & Rip Sorter)
              ------------------------------------------------------------ */}
           <section className="lg:col-span-6 flex flex-col">
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 flex flex-col flex-1">
-              {/* Card Header */}
-              <div className="flex items-center justify-between mb-3 px-1">
+              {/* Top Header Row */}
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3 px-1">
                 <div className="flex items-center gap-2.5">
                   <h2 className="text-[16px] font-bold text-zinc-900">Cutting List</h2>
-                  <span className="text-xs font-medium text-zinc-400">
-                    ({parts.length} parts · {unit === 'metric' ? 'mm' : 'in'})
+                  <span className="text-xs font-medium text-zinc-500">
+                    ({parts.length} rows · {totalPiecesCount} pcs ·{' '}
+                    {unit === 'metric' ? 'mm' : 'in'})
                   </span>
                 </div>
                 <button
@@ -592,11 +791,13 @@ export default function App() {
                       id: Date.now(),
                       num: `#${nextNum}`,
                       part: 'Side Panel',
+                      qty: 1,
                       l: 750,
                       w: 500,
                       h: 18,
                       corner: 'Edge 1x',
-                      material: 'MDF',
+                      material: '18mm Marine Plywood',
+                      source_jobs: [selectedJobs[0] || 'Job #1'],
                     }
                     setParts((prev) => [...prev, newPart])
                     setSelectedId(newPart.id)
@@ -609,25 +810,118 @@ export default function App() {
                 </button>
               </div>
 
+              {/* ============================================================
+                  MODULE 1 BAR: MULTI-PROJECT SELECTOR PILLS & ACTION BUTTONS
+                 ============================================================ */}
+              <div className="mb-3 p-3 rounded-xl bg-zinc-900 text-zinc-100 border border-zinc-800 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  {/* Multi-project selector toggle pills */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 mr-1">
+                      Schedules:
+                    </span>
+                    {Object.values(PROJECT_SCHEDULES).map((job) => {
+                      const active = selectedJobs.includes(job.id)
+                      return (
+                        <button
+                          key={job.id}
+                          type="button"
+                          onClick={() => handleToggleJob(job.id)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 border transition-all ${
+                            active
+                              ? 'bg-[#FACC15] text-zinc-950 border-[#EAB308] shadow-2xs'
+                              : 'bg-zinc-800 text-zinc-300 border-zinc-700 hover:border-zinc-500'
+                          }`}
+                        >
+                          {active ? (
+                            <CheckSquare className="w-3.5 h-3.5 stroke-[2.4]" />
+                          ) : (
+                            <Square className="w-3.5 h-3.5" />
+                          )}
+                          <span>{job.shortLabel}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {/* Action Buttons: "Consolidate Jobs" and "Sort for Rip Cuts (W ↓)" */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleConsolidateJobs}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition-all ${
+                        isConsolidated
+                          ? 'bg-[#FACC15] text-zinc-950 ring-2 ring-yellow-300'
+                          : 'bg-zinc-800 hover:bg-[#FACC15] text-[#FACC15] hover:text-zinc-950 border border-[#FACC15]/50'
+                      }`}
+                    >
+                      <GitMerge className="w-3.5 h-3.5 stroke-[2.3]" />
+                      <span>Consolidate Jobs</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSortForRipCuts}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition-all ${
+                        isRipSorted
+                          ? 'bg-[#FACC15] text-zinc-950 ring-2 ring-yellow-300'
+                          : 'bg-[#FACC15] hover:bg-[#EAB308] text-zinc-950'
+                      }`}
+                    >
+                      <ArrowDownWideNarrow className="w-3.5 h-3.5 stroke-[2.3]" />
+                      <span>Sort for Rip Cuts (W ↓)</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Live Consolidation & Saw-Setup Status Strip */}
+                {(isConsolidated || isRipSorted) && (
+                  <div className="pt-2 border-t border-zinc-800 flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-300">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {isConsolidated && (
+                        <span className="inline-flex items-center gap-1 bg-zinc-800 text-[#FACC15] px-2 py-0.5 rounded font-bold">
+                          Merged {aggregationStats?.duplicateRowsEliminated ?? 0} Identical
+                          Part Schedules
+                        </span>
+                      )}
+                      {isRipSorted && (
+                        <span className="inline-flex items-center gap-1 bg-zinc-800 text-emerald-300 px-2 py-0.5 rounded font-bold">
+                          Rip Sequence Active: Grouped by Material &amp; H → Width (W ↓) →
+                          Length (L ↓) ({aggregationStats?.fenceSetupsCount ?? 5} Fence
+                          Setups)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Master Table */}
               <div className="overflow-x-auto flex-1">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b-2 border-zinc-200 text-[11px] font-bold uppercase tracking-wider text-zinc-500">
-                      <th className="py-2.5 pl-3 pr-2 w-12">#</th>
-                      <th className="py-2.5 px-2">PART</th>
-                      <th className="py-2.5 px-2 w-16">L</th>
-                      <th className="py-2.5 px-2 w-16">W</th>
-                      <th className="py-2.5 px-2 w-14">H</th>
+                      <th className="py-2.5 pl-2.5 pr-1.5 w-11">#</th>
+                      <th className="py-2.5 px-2">PART &amp; SOURCE JOBS</th>
+                      <th className="py-2.5 px-1.5 w-14 text-center">QTY</th>
+                      <th className="py-2.5 px-1.5 w-14">L</th>
+                      <th className="py-2.5 px-1.5 w-14">W ↓</th>
+                      <th className="py-2.5 px-1.5 w-12">H</th>
                       <th className="py-2.5 px-2">CORNER</th>
                       <th className="py-2.5 px-2">MATERIAL</th>
-                      <th className="py-2.5 pl-2 pr-2.5 text-right w-20">ACTIONS</th>
+                      <th className="py-2.5 pl-1 pr-2.5 text-right w-18">ACTIONS</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 text-[13px]">
                     {parts.map((row) => {
                       const isSelected = row.id === selectedId
                       const isEditing = row.id === editingId
+                      const qtyVal = Number(row.qty) || 1
+                      const sourceJobs =
+                        Array.isArray(row.source_jobs) && row.source_jobs.length > 0
+                          ? row.source_jobs
+                          : ['Job #1']
+                      const isMultiJob = row.consolidated || sourceJobs.length > 1
 
                       return (
                         <tr
@@ -640,7 +934,7 @@ export default function App() {
                           }`}
                         >
                           {/* # Badge */}
-                          <td className="py-2 pl-2.5 pr-2 font-medium">
+                          <td className="py-2 pl-2.5 pr-1.5 font-medium">
                             <span
                               className={`inline-flex items-center justify-center text-xs font-bold px-1.5 py-0.5 rounded ${
                                 isSelected
@@ -652,7 +946,7 @@ export default function App() {
                             </span>
                           </td>
 
-                          {/* PART */}
+                          {/* PART + CONSOLIDATED SOURCE JOB BADGES */}
                           <td className="py-2 px-2 font-semibold text-zinc-900">
                             {isEditing ? (
                               <input
@@ -665,12 +959,57 @@ export default function App() {
                                 className="w-28 px-2 py-0.5 text-xs bg-white border-2 border-[#EAB308] rounded focus:outline-none"
                               />
                             ) : (
-                              row.part
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span>{row.part}</span>
+                                {isMultiJob && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-[#FACC15] text-zinc-950 border border-[#EAB308]">
+                                    MERGED ×{qtyVal}
+                                  </span>
+                                )}
+                                {sourceJobs.map((jobTag) => (
+                                  <span
+                                    key={jobTag}
+                                    className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                      jobTag === 'OCR Scan'
+                                        ? 'bg-zinc-900 text-[#FACC15]'
+                                        : 'bg-zinc-100 text-zinc-700 border border-zinc-300'
+                                    }`}
+                                  >
+                                    {jobTag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* QTY */}
+                          <td className="py-2 px-1.5 text-center tabular-nums">
+                            {isEditing ? (
+                              <input
+                                type="number"
+                                min="1"
+                                value={editDraft.qty}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) =>
+                                  setEditDraft({ ...editDraft, qty: e.target.value })
+                                }
+                                className="w-12 px-1 py-0.5 text-xs text-center bg-white border-2 border-[#EAB308] rounded focus:outline-none"
+                              />
+                            ) : (
+                              <span
+                                className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-xs font-extrabold ${
+                                  isMultiJob
+                                    ? 'bg-zinc-900 text-[#FACC15]'
+                                    : 'bg-zinc-100 text-zinc-800'
+                                }`}
+                              >
+                                ×{qtyVal}
+                              </span>
                             )}
                           </td>
 
                           {/* L */}
-                          <td className="py-2 px-2 text-zinc-700 tabular-nums">
+                          <td className="py-2 px-1.5 text-zinc-700 tabular-nums">
                             {isEditing ? (
                               <input
                                 type="number"
@@ -687,7 +1026,7 @@ export default function App() {
                           </td>
 
                           {/* W */}
-                          <td className="py-2 px-2 text-zinc-700 tabular-nums">
+                          <td className="py-2 px-1.5 text-zinc-900 font-bold tabular-nums">
                             {isEditing ? (
                               <input
                                 type="number"
@@ -699,12 +1038,20 @@ export default function App() {
                                 className="w-14 px-1.5 py-0.5 text-xs bg-white border-2 border-[#EAB308] rounded focus:outline-none"
                               />
                             ) : (
-                              formatDim(row.w)
+                              <span
+                                className={
+                                  isRipSorted
+                                    ? 'bg-yellow-100/90 text-zinc-950 px-1.5 py-0.5 rounded border border-[#EAB308]'
+                                    : ''
+                                }
+                              >
+                                {formatDim(row.w)}
+                              </span>
                             )}
                           </td>
 
                           {/* H */}
-                          <td className="py-2 px-2 text-zinc-700 tabular-nums">
+                          <td className="py-2 px-1.5 text-zinc-700 tabular-nums">
                             {isEditing ? (
                               <input
                                 type="number"
@@ -759,6 +1106,9 @@ export default function App() {
                                 }
                                 className="px-1.5 py-0.5 text-xs bg-white border-2 border-[#EAB308] rounded focus:outline-none"
                               >
+                                <option value="18mm Marine Plywood">
+                                  18mm Marine Plywood
+                                </option>
                                 <option value="MDF">MDF</option>
                                 <option value="Plywood">Plywood</option>
                                 <option value="Oak Veneer">Oak Veneer</option>
@@ -769,7 +1119,7 @@ export default function App() {
                           </td>
 
                           {/* ACTIONS (Dark charcoal icons with yellow hover effects) */}
-                          <td className="py-2 pl-2 pr-2.5 text-right">
+                          <td className="py-2 pl-1 pr-2.5 text-right">
                             {isEditing ? (
                               <div className="inline-flex items-center justify-end gap-1">
                                 <button
@@ -975,6 +1325,18 @@ export default function App() {
           </section>
         </main>
       </div>
+
+      {/* ============================================================
+          MODULE 2: HUMAN-IN-THE-LOOP OCR VERIFICATION MODAL
+         ============================================================ */}
+      <OcrReviewModal
+        isOpen={isOcrModalOpen}
+        onClose={() => setIsOcrModalOpen(false)}
+        onCommitParts={handleCommitOcrParts}
+        fileName={ocrFileName}
+        imagePreviewUrl={ocrPreviewUrl}
+        initialRows={DEFAULT_OCR_EXTRACTED_ROWS}
+      />
 
       {/* Fullscreen 3D Technical Wireframe Modal when Expand is clicked */}
       {isDesignExpanded && (
