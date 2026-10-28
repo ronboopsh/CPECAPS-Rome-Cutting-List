@@ -1,140 +1,193 @@
 /**
- * ============================================================================
- * DOCUMENT EXPORTERS (`src/utils/exporter.js`)
- * Owner: Pamela Calma
- * ISO-Compliant Shop Cut Sheets in Printable PDF (with checkboxes) and
- * Excel (.xlsx / .csv) Spreadsheet Export.
- * ============================================================================
+ * src/utils/exporter.js
+ * Exporters for ISO-compliant Shop Cut Sheets (PDF) and Workbooks (Excel/CSV).
  */
 
-export function formatDimensionByUnit(mmValue, unit = 'metric') {
-  if (unit === 'metric') return Number(mmValue) || 0
-  const inches = (Number(mmValue) || 0) / 25.4
-  return inches >= 10 ? Number(inches.toFixed(1)) : Number(inches.toFixed(2))
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
+import * as XLSX from 'xlsx';
+
+/**
+ * Exports the cutlist to an ISO-compliant printable PDF cut sheet.
+ * Grouped and sorted for table saw rip cuts: Material -> Thickness -> Width (Desc).
+ */
+export function exportToPdf(parts, projectNames = ['All Selected Projects']) {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+
+  // Primary Theme Colors (Industrial Black & Yellow)
+  const PRIMARY_BLACK = [17, 24, 39]; // #111827
+  const ACCENT_YELLOW = [250, 204, 21]; // #FACC15
+  const SECONDARY_GRAY = [107, 114, 128];
+
+  // Header Banner
+  doc.setFillColor(...PRIMARY_BLACK);
+  doc.rect(0, 0, pageWidth, 28, 'F');
+
+  // Accent Line
+  doc.setFillColor(...ACCENT_YELLOW);
+  doc.rect(0, 28, pageWidth, 2, 'F');
+
+  // Header Typography
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.text('ROME CABINETS — SHOP-FLOOR CUT SHEET', 14, 14);
+
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(200, 200, 200);
+  doc.text(
+    `Rip-Sorted Saw Schedule | Generated: ${new Date().toLocaleString()} | Projects: ${projectNames.join(', ')}`,
+    14,
+    22
+  );
+
+  // Table Data Mapping
+  const tableRows = parts.map((part, index) => [
+    '[  ]', // Checkbox for saw operator
+    index + 1,
+    part.part_name,
+    part.quantity,
+    part.material,
+    `${part.thickness} mm`,
+    `${part.width} mm`,
+    `${part.length} mm`,
+    part.corner_cut || 'None',
+    part.source_jobs ? part.source_jobs.join(', ') : (part.project_id || '-'),
+  ]);
+
+  doc.autoTable({
+    startY: 35,
+    head: [[
+      'Cut',
+      '#',
+      'Part Description',
+      'Qty',
+      'Material',
+      'Thk',
+      'Width (Rip)',
+      'Length',
+      'Corner Cut',
+      'Job Source'
+    ]],
+    body: tableRows,
+    theme: 'grid',
+    styles: {
+      fontSize: 8.5,
+      cellPadding: 2.5,
+      textColor: [30, 30, 30],
+      lineColor: [220, 220, 220],
+      lineWidth: 0.1,
+    },
+    headStyles: {
+      fillColor: PRIMARY_BLACK,
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      halign: 'left',
+    },
+    columnStyles: {
+      0: { cellWidth: 12, halign: 'center' }, // Checkbox
+      1: { cellWidth: 8, halign: 'center' },
+      2: { cellWidth: 38 },
+      3: { cellWidth: 10, halign: 'center', fontStyle: 'bold' },
+      4: { cellWidth: 28 },
+      5: { cellWidth: 14, halign: 'right' },
+      6: { cellWidth: 20, halign: 'right', fontStyle: 'bold' }, // Rip width highlighted
+      7: { cellWidth: 20, halign: 'right' },
+      8: { cellWidth: 18 },
+      9: { cellWidth: 22 },
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252],
+    },
+    didDrawPage: (data) => {
+      // Footer page numbering
+      const str = `Page ${doc.internal.getNumberOfPages()}`;
+      doc.setFontSize(8);
+      doc.setTextColor(...SECONDARY_GRAY);
+      doc.text(str, pageWidth - 20, doc.internal.pageSize.getHeight() - 10);
+      doc.text(
+        'Note: Fence rip cuts are ordered by Width Descending (W ↓) to minimize fence movement.',
+        14,
+        doc.internal.pageSize.getHeight() - 10
+      );
+    },
+  });
+
+  doc.save(`Rome_Cabinets_CutSheet_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
 /**
- * Exports the active cutting list to an Excel-compatible CSV/XLSX table download.
+ * Exports the cutlist to an Excel (.xlsx) workbook with formatted headers.
  */
-export function exportCuttingListToCsv(parts = [], unit = 'metric') {
-  const unitLabel = unit === 'metric' ? 'mm' : 'in'
-  const headers = [
-    '#',
-    'Part Name',
-    'Qty',
-    `Length (${unitLabel})`,
-    `Width (${unitLabel})`,
-    `Thickness (${unitLabel})`,
-    'Corner / Edge',
-    'Material',
-    'Source Jobs',
-  ]
+export function exportToExcel(parts, filename = 'Rome_Cabinets_CutList') {
+  const formattedData = parts.map((part, index) => ({
+    'Cut Done': '[  ]',
+    'Item #': index + 1,
+    'Part Name': part.part_name,
+    'Quantity': part.quantity,
+    'Material': part.material,
+    'Thickness (mm)': part.thickness,
+    'Width / Rip (mm)': part.width,
+    'Length (mm)': part.length,
+    'Corner Cut': part.corner_cut || 'None',
+    'Source': part.source || 'CAD',
+    'Source Projects': part.source_jobs ? part.source_jobs.join(', ') : part.project_id,
+    'Remarks': part.remarks || '',
+  }));
 
-  const csvRows = [
-    headers.join(','),
-    ...parts.map((p) =>
-      [
-        p.num,
-        `"${String(p.part || '').replace(/"/g, '""')}"`,
-        Number(p.qty) || 1,
-        formatDimensionByUnit(p.l, unit),
-        formatDimensionByUnit(p.w, unit),
-        formatDimensionByUnit(p.h, unit),
-        `"${String(p.corner || 'None')}"`,
-        `"${String(p.material || 'MDF')}"`,
-        `"${(Array.isArray(p.source_jobs) ? p.source_jobs : ['Job #1']).join(' + ')}"`,
-      ].join(',')
-    ),
-  ]
+  const worksheet = XLSX.utils.json_to_sheet(formattedData);
 
-  // Prepend UTF-8 BOM so Microsoft Excel opens millimeter symbols and columns cleanly
-  const blob = new Blob(['\uFEFF' + csvRows.join('\n')], {
-    type: 'text/csv;charset=utf-8;',
-  })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `rome-cabinets-cutlist-${unitLabel}.csv`
-  link.click()
-  URL.revokeObjectURL(url)
+  // Set explicit column widths for readability on shop floor tablets/laptops
+  worksheet['!cols'] = [
+    { wch: 10 }, // Cut Done
+    { wch: 8 },  // Item #
+    { wch: 25 }, // Part Name
+    { wch: 10 }, // Quantity
+    { wch: 22 }, // Material
+    { wch: 14 }, // Thickness
+    { wch: 16 }, // Width
+    { wch: 16 }, // Length
+    { wch: 14 }, // Corner Cut
+    { wch: 10 }, // Source
+    { wch: 20 }, // Source Projects
+    { wch: 25 }, // Remarks
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Rip-Sorted Cutlist');
+  XLSX.writeFile(workbook, `${filename}_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
 /**
- * Generates an ISO-style printable shop-floor cut sheet (with physical check-off
- * boxes for the table saw operator) and triggers the browser's print-to-PDF dialog.
+ * Simple CSV fallback export.
  */
-export function exportCuttingListToPrintablePdf(parts = [], unit = 'metric', selectedJobs = []) {
-  const unitLabel = unit === 'metric' ? 'mm' : 'in'
-  const totalPieces = parts.reduce((acc, p) => acc + (Number(p.qty) || 1), 0)
-  const printWin = window.open('', '_blank', 'width=960,height=720')
-  if (!printWin) return false
+export function exportToCsv(parts, filename = 'Rome_Cabinets_CutList') {
+  const formattedData = parts.map(part => ({
+    Part_Name: part.part_name,
+    Quantity: part.quantity,
+    Material: part.material,
+    Thickness_mm: part.thickness,
+    Width_mm: part.width,
+    Length_mm: part.length,
+    Corner_Cut: part.corner_cut || 'None',
+    Jobs: part.source_jobs ? part.source_jobs.join(';') : part.project_id,
+  }));
 
-  const rowsHtml = parts
-    .map((p) => {
-      const jobs = (Array.isArray(p.source_jobs) ? p.source_jobs : ['Job #1']).join(', ')
-      return `
-        <tr>
-          <td style="text-align:center;">☐</td>
-          <td><strong>${p.num}</strong></td>
-          <td>${p.part}</td>
-          <td style="text-align:center;"><strong>×${p.qty || 1}</strong></td>
-          <td style="text-align:right;">${formatDimensionByUnit(p.l, unit)}</td>
-          <td style="text-align:right;"><strong>${formatDimensionByUnit(p.w, unit)}</strong></td>
-          <td style="text-align:right;">${formatDimensionByUnit(p.h, unit)}</td>
-          <td>${p.corner || 'None'}</td>
-          <td>${p.material || 'MDF'}</td>
-          <td>${jobs}</td>
-        </tr>
-      `
-    })
-    .join('')
+  const worksheet = XLSX.utils.json_to_sheet(formattedData);
+  const csvOutput = XLSX.utils.sheet_to_csv(worksheet);
 
-  printWin.document.write(`
-    <!doctype html>
-    <html>
-      <head>
-        <title>Rome Cabinets — ISO Shop Cut Sheet</title>
-        <style>
-          body { font-family: Inter, Arial, sans-serif; color: #111827; padding: 24px; }
-          .banner { border-bottom: 3px solid #111827; padding-bottom: 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: flex-end; }
-          .badge { background: #FACC15; color: #111827; padding: 3px 8px; font-weight: 800; font-size: 12px; border-radius: 4px; }
-          table { width: 100%; border-collapse: collapse; font-size: 12px; }
-          th { background: #111827; color: #FACC15; text-align: left; padding: 8px; text-transform: uppercase; }
-          td { border-bottom: 1px solid #D1D5DB; padding: 7px 8px; }
-        </style>
-      </head>
-      <body>
-        <div class="banner">
-          <div>
-            <h1 style="margin:0;font-size:20px;text-transform:uppercase;">Rome Cabinets — Shop-Floor Cut Sheet</h1>
-            <p style="margin:4px 0 0;font-size:12px;color:#4B5563;">
-              Active Schedules: ${selectedJobs.join(', ') || 'All Jobs'} · Total Rows: ${parts.length} (${totalPieces} Pcs) · Units: ${unitLabel}
-            </p>
-          </div>
-          <span class="badge">TABLE SAW RIP SEQUENCE (W ↓)</span>
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th style="width:36px;text-align:center;">CUT</th>
-              <th style="width:44px;">#</th>
-              <th>Part Name</th>
-              <th style="width:52px;text-align:center;">Qty</th>
-              <th style="width:70px;text-align:right;">L (${unitLabel})</th>
-              <th style="width:70px;text-align:right;">W ↓ (${unitLabel})</th>
-              <th style="width:60px;text-align:right;">H (${unitLabel})</th>
-              <th>Corner</th>
-              <th>Material</th>
-              <th>Source Jobs</th>
-            </tr>
-          </thead>
-          <tbody>${rowsHtml}</tbody>
-        </table>
-      </body>
-    </html>
-  `)
-  printWin.document.close()
-  printWin.focus()
-  printWin.print()
-  return true
+  const blob = new Blob([csvOutput], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.setAttribute('download', `${filename}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
