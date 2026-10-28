@@ -320,10 +320,12 @@ def run_benchmark_suite(trials_per_module: int = 30, reliability_runs: int = 100
     peak_ram = max(sampler.ram_mb_samples) if sampler.ram_mb_samples else ram_stats["max"]
     reliability_rate = (reliability_passed / float(reliability_runs)) * 100.0
 
-    # Export `RESP_Test_BatchRuns.csv` to both root and `tests/`
+    # Export `RESP_Test_BatchRuns.csv` to `tests/logs/` and project root
+    logs_dir = os.path.join(os.path.dirname(__file__), "logs")
+    os.makedirs(logs_dir, exist_ok=True)
     csv_paths = [
+        os.path.join(logs_dir, "RESP_Test_BatchRuns.csv"),
         os.path.join(PROJECT_ROOT, "RESP_Test_BatchRuns.csv"),
-        os.path.join(os.path.dirname(__file__), "RESP_Test_BatchRuns.csv"),
     ]
     fieldnames = [
         "run_id",

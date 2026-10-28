@@ -1,32 +1,18 @@
 import React, { useState, useRef } from 'react'
 import {
-  Upload,
   Box,
   Search,
   RefreshCw,
   Maximize2,
   Minimize2,
-  Pencil,
-  Trash2,
-  Check,
-  X,
-  Plus,
-  ClipboardList,
-  Layers,
-  FileSpreadsheet,
-  CheckCircle2,
-  UserCheck,
-  Camera,
-  GitMerge,
-  ArrowDownWideNarrow,
-  CheckSquare,
-  Square,
-  Sparkles,
-  FileCode2,
 } from 'lucide-react'
+import Header from './components/Header'
+import SplashScreen from './components/SplashScreen'
+import UploadCard from './components/UploadCard'
 import CabinetWireframe from './components/CabinetWireframe'
-import RomeLogo from './components/RomeLogo'
-import CarpenterSplash from './components/CarpenterSplash'
+import CuttingListTable from './components/CuttingListTable'
+import ProjectTray from './components/ProjectTray'
+import InventoryPanel from './components/InventoryPanel'
 import OcrReviewModal, { DEFAULT_OCR_EXTRACTED_ROWS } from './components/OcrReviewModal'
 import {
   PROJECT_SCHEDULES,
@@ -34,6 +20,11 @@ import {
   aggregateProjectCutlists,
   sortPartsForRipCuts,
 } from './utils/aggregator'
+import {
+  formatDimensionByUnit,
+  exportCuttingListToCsv,
+  exportCuttingListToPrintablePdf,
+} from './utils/exporter'
 
 // ============================================================================
 // LOGO CONFIGURATION (EASY IMAGE SWAP):
@@ -96,15 +87,6 @@ const INITIAL_INVENTORY = [
   },
 ]
 
-const TOP_NAV_ITEMS = [
-  { label: 'Home', hasDropdown: false },
-  { label: 'Browse', hasDropdown: true },
-  { label: 'Tools', hasDropdown: true },
-  { label: 'Data', hasDropdown: true },
-  { label: 'More', hasDropdown: true },
-  { label: 'Help', hasDropdown: false },
-]
-
 export default function App() {
   // Interactive Carpenter Home / Splash Screen state (default: true on initial load)
   const [showHomeScreen, setShowHomeScreen] = useState(true)
@@ -126,7 +108,7 @@ export default function App() {
   const [editingId, setEditingId] = useState(null)
   const [editDraft, setEditDraft] = useState(null)
 
-  // Dual Upload Card state: 'cad' ("Upload 3D CAD (.dae, .obj, .csv)") | 'ocr' ("Scan Paper Cutlist (.png, .jpg)")
+  // Dual Upload Card state: 'cad' | 'ocr'
   const [uploadMode, setUploadMode] = useState('cad')
   const [isDragging, setIsDragging] = useState(false)
   const [uploadedFile, setUploadedFile] = useState(null)
@@ -165,12 +147,7 @@ export default function App() {
     }, 3000)
   }
 
-  // Format dimension value according to Metric (mm) or Imperial (in)
-  const formatDim = (mmValue) => {
-    if (unit === 'metric') return mmValue
-    const inches = Number(mmValue) / 25.4
-    return inches >= 10 ? inches.toFixed(1) : inches.toFixed(2)
-  }
+  const formatDim = (mmValue) => formatDimensionByUnit(mmValue, unit)
 
   // ==========================================================================
   // MODULE 1 HANDLERS: MULTI-PROJECT SELECTOR, CONSOLIDATE & RIP SORTER
@@ -284,43 +261,19 @@ export default function App() {
     )
   }
 
-  // Export CSV helper
-  const exportCsv = () => {
-    const headers = [
-      '#',
-      'Part',
-      'Qty',
-      `L (${unit === 'metric' ? 'mm' : 'in'})`,
-      `W (${unit === 'metric' ? 'mm' : 'in'})`,
-      `H (${unit === 'metric' ? 'mm' : 'in'})`,
-      'Corner',
-      'Material',
-      'Source Jobs',
-    ]
-    const csvRows = [
-      headers.join(','),
-      ...parts.map((p) =>
-        [
-          p.num,
-          `"${p.part}"`,
-          p.qty || 1,
-          formatDim(p.l),
-          formatDim(p.w),
-          formatDim(p.h),
-          `"${p.corner}"`,
-          `"${p.material}"`,
-          `"${(p.source_jobs || ['Job #1']).join(' + ')}"`,
-        ].join(',')
-      ),
-    ]
-    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'rome-cabinets-cutting-list.csv'
-    a.click()
-    URL.revokeObjectURL(url)
-    triggerToast('Exported cutting list to CSV')
+  // Export handlers (`src/utils/exporter.js`)
+  const handleExportCsv = () => {
+    exportCuttingListToCsv(parts, unit)
+    triggerToast('Exported cutting list to Excel / CSV')
+  }
+
+  const handleExportPdf = () => {
+    const ok = exportCuttingListToPrintablePdf(parts, unit, selectedJobs)
+    if (ok) {
+      triggerToast('Generated ISO Printable Shop Cut Sheet (PDF)')
+    } else {
+      triggerToast('Allow popups to print ISO PDF cut sheet')
+    }
   }
 
   // Handle Top Navigation Bar clicks
@@ -328,7 +281,7 @@ export default function App() {
     if (label === 'Home') {
       setShowHomeScreen(true)
     } else if (label === 'Data') {
-      exportCsv()
+      handleExportCsv()
     } else if (label === 'Browse') {
       if (uploadMode === 'ocr') {
         ocrInputRef.current?.click()
@@ -389,7 +342,29 @@ export default function App() {
     triggerToast(`Removed ${item.num} ${item.part}`)
   }
 
-  // Add new stock sheet from Row #4
+  const handleAddPart = () => {
+    const nextNum =
+      parts.length > 0
+        ? Math.max(...parts.map((p) => parseInt(p.num.replace('#', ''), 10) || 0)) + 1
+        : 1
+    const newPart = {
+      id: Date.now(),
+      num: `#${nextNum}`,
+      part: 'Side Panel',
+      qty: 1,
+      l: 750,
+      w: 500,
+      h: 18,
+      corner: 'Edge 1x',
+      material: '18mm Marine Plywood',
+      source_jobs: [selectedJobs[0] || 'Job #1'],
+    }
+    setParts((prev) => [...prev, newPart])
+    setSelectedId(newPart.id)
+    triggerToast(`Added ${newPart.num} (${newPart.part})`)
+  }
+
+  // Add new stock sheet
   const handleAddMaterial = () => {
     const lVal = Number(newSheet.l) || 2440
     const wVal = Number(newSheet.w) || 1220
@@ -417,16 +392,15 @@ export default function App() {
   }
 
   const selectedPartObj = parts.find((p) => p.id === selectedId) || null
-  const nextInventoryIndex = inventory.length + 1
   const totalPiecesCount = parts.reduce((acc, p) => acc + (Number(p.qty) || 1), 0)
 
   return (
     <div className="min-h-screen bg-[#F3F4F6] text-zinc-900 flex flex-col select-none">
       {/* ============================================================
-          INTERACTIVE CARPENTER SPLASH / HOME SCREEN (INITIAL LOAD)
+          INTERACTIVE CARPENTER SPLASH / HOME SCREEN (`SplashScreen.jsx`)
          ============================================================ */}
       {showHomeScreen && (
-        <CarpenterSplash
+        <SplashScreen
           onEnterWorkshop={() => setShowHomeScreen(false)}
           logoPath={LOGO_IMAGE_PATH}
           preferCustomLogo={PREFER_CUSTOM_LOGO_PNG}
@@ -435,164 +409,30 @@ export default function App() {
       )}
 
       {/* ============================================================
-          TWO-TIER INDUSTRIAL TOP BAR
+          TWO-TIER INDUSTRIAL TOP BAR (`Header.jsx`)
          ============================================================ */}
-      <header className="w-full shadow-xs">
-        {/* TIER 1: Utility & Navigation Bar (Solid Pitch Black / Dark Charcoal) */}
-        <div className="bg-[#18181B] text-zinc-100 border-b border-zinc-800">
-          <div className="max-w-[1680px] mx-auto px-4 lg:px-6 h-11 flex items-center justify-between text-[13px]">
-            {/* Left Side: Horizontal Navigation Menu */}
-            <nav className="flex items-center gap-1 sm:gap-2">
-              {TOP_NAV_ITEMS.map((item) => (
-                <button
-                  key={item.label}
-                  type="button"
-                  onClick={() => handleNavClick(item.label)}
-                  className="px-2.5 py-1 rounded text-zinc-200 hover:text-[#FACC15] hover:bg-zinc-800/80 font-medium transition-colors flex items-center gap-1.5"
-                >
-                  {item.label === 'Home' && (
-                    <RomeLogo variant="badge" className="w-4 h-4" />
-                  )}
-                  <span>{item.label}</span>
-                  {item.hasDropdown && (
-                    <span className="text-[11px] text-zinc-400 group-hover:text-[#FACC15]">
-                      ▾
-                    </span>
-                  )}
-                </button>
-              ))}
-            </nav>
-
-            {/* Right Side: Workshop Account + Black & Yellow Unit Pill Switch */}
-            <div className="flex items-center gap-4">
-              {toastMessage && (
-                <div className="hidden md:flex items-center gap-1.5 text-xs font-semibold text-zinc-950 bg-[#FACC15] px-3 py-0.5 rounded-full">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-zinc-950" />
-                  <span>{toastMessage}</span>
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={() => {
-                  setLoggedIn((v) => !v)
-                  triggerToast(
-                    !loggedIn
-                      ? 'Authenticated: Rome Cabinets Portal'
-                      : 'Switched to Workshop Guest Session'
-                  )
-                }}
-                className="text-xs sm:text-[13px] font-medium text-zinc-300 hover:text-[#FACC15] transition-colors flex items-center gap-1.5"
-              >
-                <UserCheck className="w-3.5 h-3.5 text-[#FACC15]" />
-                <span>
-                  {loggedIn ? 'Rome Cabinets Portal' : 'Login to Workshop Account'}
-                </span>
-              </button>
-
-              <span className="text-zinc-700 hidden sm:inline">|</span>
-
-              {/* Integrated Imperial / Metric Pill Switch in Black & Yellow */}
-              <div className="flex items-center bg-zinc-950 p-0.5 rounded-full border border-zinc-700">
-                <button
-                  type="button"
-                  onClick={() => setUnit('imperial')}
-                  className={`px-3 py-0.5 rounded-full text-xs transition-all ${
-                    unit === 'imperial'
-                      ? 'bg-[#FACC15] text-zinc-950 font-bold shadow-xs'
-                      : 'text-zinc-400 hover:text-zinc-100 font-medium'
-                  }`}
-                >
-                  Imperial
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setUnit('metric')}
-                  className={`px-3 py-0.5 rounded-full text-xs transition-all ${
-                    unit === 'metric'
-                      ? 'bg-[#FACC15] text-zinc-950 font-bold shadow-xs'
-                      : 'text-zinc-400 hover:text-zinc-100 font-medium'
-                  }`}
-                >
-                  Metric
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* TIER 2: Main Header Banner (Branding & Status Strip with <RomeLogo />) */}
-        <div className="bg-white border-b border-gray-200">
-          <div className="max-w-[1680px] mx-auto px-4 lg:px-6 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            {/* Left Side: Official Rome Modular Systems Logo + Prominent "Rome Cabinets" Typography */}
-            <div className="flex items-center gap-3.5">
-              <button
-                type="button"
-                title="Open Carpenter Splash Screen"
-                onClick={() => setShowHomeScreen(true)}
-                className="rounded-lg overflow-hidden shadow-xs hover:opacity-95 transition-opacity focus:outline-none focus:ring-2 focus:ring-[#FACC15]"
-              >
-                <RomeLogo
-                  logoPath={LOGO_IMAGE_PATH}
-                  preferImage={PREFER_CUSTOM_LOGO_PNG}
-                  variant="full"
-                  className="h-12 w-auto"
-                />
-              </button>
-              <div className="flex items-baseline gap-2.5">
-                <h1 className="text-2xl font-extrabold tracking-tight text-zinc-950 uppercase">
-                  Rome{' '}
-                  <span className="bg-[#FACC15] px-2 py-0.5 rounded text-zinc-950">
-                    Cabinets
-                  </span>
-                </h1>
-                <span className="hidden md:inline-block text-[11px] font-bold uppercase tracking-widest text-zinc-500 border border-zinc-300 rounded px-1.5 py-0.5">
-                  CNC · CAD · OCR v2.5
-                </span>
-              </div>
-            </div>
-
-            {/* Right Side: Two-Line Metadata and Status Block */}
-            <div className="sm:text-right">
-              <p className="text-[13.5px] font-bold text-zinc-900 tracking-tight">
-                Automated Cutting List &amp; Shop-Floor Coordinator
-              </p>
-              <div className="text-xs text-zinc-500 font-medium mt-0.5 flex flex-wrap sm:justify-end items-center gap-1.5">
-                <span className="inline-flex items-center gap-1 text-zinc-800 font-semibold">
-                  <span className="w-2 h-2 rounded-full bg-[#EAB308] inline-block" />
-                  Active Session
-                </span>
-                <span className="text-zinc-300">|</span>
-                <span className="font-semibold text-zinc-700">
-                  {parts.length} Rows ({totalPiecesCount} Pcs)
-                </span>
-                <span className="text-zinc-300">|</span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    triggerToast(
-                      `Shop Efficiency: 82% Yield across ${inventory.length} Stock Sheets`
-                    )
-                  }
-                  className="hover:text-zinc-950 hover:underline decoration-[#FACC15] decoration-2 underline-offset-2 transition-colors"
-                >
-                  Shop Statistics
-                </button>
-                <span className="text-zinc-300">|</span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    triggerToast('Click any cutting list row to inspect 3D cut plane')
-                  }
-                  className="hover:text-zinc-950 hover:underline decoration-[#FACC15] decoration-2 underline-offset-2 transition-colors"
-                >
-                  Help
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
+      <Header
+        unit={unit}
+        onSetUnit={setUnit}
+        loggedIn={loggedIn}
+        onToggleLogin={() => {
+          setLoggedIn((v) => !v)
+          triggerToast(
+            !loggedIn
+              ? 'Authenticated: Rome Cabinets Portal'
+              : 'Switched to Workshop Guest Session'
+          )
+        }}
+        toastMessage={toastMessage}
+        onNavClick={handleNavClick}
+        onOpenSplash={() => setShowHomeScreen(true)}
+        partsCount={parts.length}
+        totalPiecesCount={totalPiecesCount}
+        inventoryCount={inventory.length}
+        onTriggerToast={triggerToast}
+        logoPath={LOGO_IMAGE_PATH}
+        preferCustomLogo={PREFER_CUSTOM_LOGO_PNG}
+      />
 
       {/* ============================================================
           THREE-COLUMN MAIN DASHBOARD
@@ -601,113 +441,26 @@ export default function App() {
       <div className="w-full max-w-[1680px] mx-auto px-4 lg:px-6 py-4 flex-1 flex flex-col">
         <main className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 items-stretch">
           {/* ------------------------------------------------------------
-              A. LEFT COLUMN (Dual CAD / OCR Upload Card + 3D Wireframe)
+              A. LEFT COLUMN (`UploadCard.jsx` + `CabinetWireframe.jsx`)
              ------------------------------------------------------------ */}
           <section className="lg:col-span-3 flex flex-col gap-4">
-            {/* CARD 1: Dual-Mode Upload Zone (3D CAD vs. Paper Cutlist OCR) */}
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
-              {/* Dual Upload Tabs */}
-              <div className="grid grid-cols-2 gap-1.5 bg-zinc-900 p-1 rounded-xl mb-3">
-                <button
-                  type="button"
-                  onClick={() => setUploadMode('cad')}
-                  className={`py-2 px-2 rounded-lg text-[11px] font-extrabold leading-tight flex flex-col items-center justify-center gap-1 transition-all ${
-                    uploadMode === 'cad'
-                      ? 'bg-[#FACC15] text-zinc-950 shadow-xs'
-                      : 'text-zinc-300 hover:text-white'
-                  }`}
-                >
-                  <FileCode2 className="w-3.5 h-3.5" />
-                  <span>Upload 3D CAD (.dae, .obj, .csv)</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setUploadMode('ocr')}
-                  className={`py-2 px-2 rounded-lg text-[11px] font-extrabold leading-tight flex flex-col items-center justify-center gap-1 transition-all ${
-                    uploadMode === 'ocr'
-                      ? 'bg-[#FACC15] text-zinc-950 shadow-xs'
-                      : 'text-zinc-300 hover:text-white'
-                  }`}
-                >
-                  <Camera className="w-3.5 h-3.5" />
-                  <span>Scan Paper Cutlist (.png, .jpg)</span>
-                </button>
-              </div>
-
-              {/* Hidden file inputs for CAD and OCR Camera/Image */}
-              <input
-                ref={cadInputRef}
-                type="file"
-                accept=".dae,.obj,.csv,.skp,.json"
-                className="hidden"
-                onChange={(e) => handleFileReceive(e.target.files?.[0])}
-              />
-              <input
-                ref={ocrInputRef}
-                type="file"
-                accept=".png,.jpg,.jpeg,.webp,image/*"
-                capture="environment"
-                className="hidden"
-                onChange={(e) => handleFileReceive(e.target.files?.[0])}
-              />
-
-              {/* Dropzone Area */}
-              <div
-                onClick={() =>
-                  uploadMode === 'ocr'
-                    ? ocrInputRef.current?.click()
-                    : cadInputRef.current?.click()
-                }
-                onDragOver={(e) => {
-                  e.preventDefault()
-                  setIsDragging(true)
-                }}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={handleDrop}
-                className={`group cursor-pointer rounded-xl border-2 border-dashed transition-all px-4 py-5 flex flex-col items-center justify-center text-center ${
-                  isDragging
-                    ? 'border-[#EAB308] bg-yellow-50/70'
-                    : 'border-zinc-300 hover:border-[#FACC15] hover:bg-yellow-50/30'
-                }`}
-              >
-                <div className="w-11 h-11 rounded-full bg-zinc-900 group-hover:bg-[#FACC15] border border-zinc-800 group-hover:border-[#EAB308] flex items-center justify-center mb-2.5 text-[#FACC15] group-hover:text-zinc-950 transition-colors shadow-xs">
-                  {uploadMode === 'ocr' ? (
-                    <Camera className="w-5 h-5 stroke-[2.2]" />
-                  ) : (
-                    <Upload className="w-5 h-5 stroke-[2.2]" />
-                  )}
-                </div>
-                <p className="text-[12.5px] font-extrabold tracking-wide text-zinc-900 uppercase">
-                  {uploadMode === 'ocr'
-                    ? 'DROP PAPER CUTLIST PHOTO HERE'
-                    : 'DROP 3D CAD FILES HERE'}
-                </p>
-                <p className="text-[11px] text-zinc-500 mt-1">
-                  {uploadedFile
-                    ? `Loaded: ${uploadedFile}`
-                    : uploadMode === 'ocr'
-                    ? 'Drag & drop .png / .jpg or tap to capture via camera'
-                    : 'Supports .dae, .obj, .csv, and SketchUp .skp'}
-                </p>
-              </div>
-
-              {/* Quick OCR Demo Trigger Button for Immediate Inspection */}
-              <div className="mt-2.5 flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => triggerOcrIntake(null, 'galvez_shop_sheet_scan.jpg')}
-                  className="w-full py-2 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-[#FACC15] text-[11.5px] font-bold flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Open OCR Vision Review Modal (Sample Scan)</span>
-                </button>
-              </div>
-            </div>
+            <UploadCard
+              uploadMode={uploadMode}
+              onSetUploadMode={setUploadMode}
+              isDragging={isDragging}
+              onSetIsDragging={setIsDragging}
+              uploadedFile={uploadedFile}
+              cadInputRef={cadInputRef}
+              ocrInputRef={ocrInputRef}
+              onFileReceive={handleFileReceive}
+              onDrop={handleDrop}
+              onTriggerSampleOcr={() =>
+                triggerOcrIntake(null, 'galvez_shop_sheet_scan.jpg')
+              }
+            />
 
             {/* CARD 2: "Design" 3D Isometric Technical Wireframe */}
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 flex flex-col flex-1 min-h-[370px] relative">
-              {/* Card Header */}
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <div className="w-6 h-6 rounded-md bg-zinc-900 flex items-center justify-center">
@@ -722,7 +475,6 @@ export default function App() {
                 )}
               </div>
 
-              {/* Technical Line-Drawing Preview Area */}
               <div className="flex-1 rounded-xl border border-gray-200 bg-[#FAFAFA] relative flex items-center justify-center overflow-hidden">
                 <CabinetWireframe
                   unit={unit}
@@ -731,7 +483,6 @@ export default function App() {
                   selectedPart={selectedPartObj}
                 />
 
-                {/* Bottom Toolbar Overlay with Circular Action Buttons */}
                 <div className="absolute bottom-3 right-3 flex items-center gap-2">
                   <button
                     type="button"
@@ -765,563 +516,52 @@ export default function App() {
           </section>
 
           {/* ------------------------------------------------------------
-              B. CENTER COLUMN (Cutting List + Multi-Project Aggregator & Rip Sorter)
+              B. CENTER COLUMN (`CuttingListTable.jsx` + `ProjectTray.jsx`)
              ------------------------------------------------------------ */}
           <section className="lg:col-span-6 flex flex-col">
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 flex flex-col flex-1">
-              {/* Top Header Row */}
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-3 px-1">
-                <div className="flex items-center gap-2.5">
-                  <h2 className="text-[16px] font-bold text-zinc-900">Cutting List</h2>
-                  <span className="text-xs font-medium text-zinc-500">
-                    ({parts.length} rows · {totalPiecesCount} pcs ·{' '}
-                    {unit === 'metric' ? 'mm' : 'in'})
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const nextNum =
-                      parts.length > 0
-                        ? Math.max(
-                            ...parts.map((p) => parseInt(p.num.replace('#', ''), 10) || 0)
-                          ) + 1
-                        : 1
-                    const newPart = {
-                      id: Date.now(),
-                      num: `#${nextNum}`,
-                      part: 'Side Panel',
-                      qty: 1,
-                      l: 750,
-                      w: 500,
-                      h: 18,
-                      corner: 'Edge 1x',
-                      material: '18mm Marine Plywood',
-                      source_jobs: [selectedJobs[0] || 'Job #1'],
-                    }
-                    setParts((prev) => [...prev, newPart])
-                    setSelectedId(newPart.id)
-                    triggerToast(`Added ${newPart.num} (${newPart.part})`)
-                  }}
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-zinc-950 bg-[#FACC15] hover:bg-[#EAB308] active:bg-[#CA8A04] px-3 py-1.5 rounded-lg shadow-2xs transition-colors"
-                >
-                  <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                  <span>+ Add Part</span>
-                </button>
-              </div>
-
-              {/* ============================================================
-                  MODULE 1 BAR: MULTI-PROJECT SELECTOR PILLS & ACTION BUTTONS
-                 ============================================================ */}
-              <div className="mb-3 p-3 rounded-xl bg-zinc-900 text-zinc-100 border border-zinc-800 space-y-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  {/* Multi-project selector toggle pills */}
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 mr-1">
-                      Schedules:
-                    </span>
-                    {Object.values(PROJECT_SCHEDULES).map((job) => {
-                      const active = selectedJobs.includes(job.id)
-                      return (
-                        <button
-                          key={job.id}
-                          type="button"
-                          onClick={() => handleToggleJob(job.id)}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 border transition-all ${
-                            active
-                              ? 'bg-[#FACC15] text-zinc-950 border-[#EAB308] shadow-2xs'
-                              : 'bg-zinc-800 text-zinc-300 border-zinc-700 hover:border-zinc-500'
-                          }`}
-                        >
-                          {active ? (
-                            <CheckSquare className="w-3.5 h-3.5 stroke-[2.4]" />
-                          ) : (
-                            <Square className="w-3.5 h-3.5" />
-                          )}
-                          <span>{job.shortLabel}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-
-                  {/* Action Buttons: "Consolidate Jobs" and "Sort for Rip Cuts (W ↓)" */}
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={handleConsolidateJobs}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition-all ${
-                        isConsolidated
-                          ? 'bg-[#FACC15] text-zinc-950 ring-2 ring-yellow-300'
-                          : 'bg-zinc-800 hover:bg-[#FACC15] text-[#FACC15] hover:text-zinc-950 border border-[#FACC15]/50'
-                      }`}
-                    >
-                      <GitMerge className="w-3.5 h-3.5 stroke-[2.3]" />
-                      <span>Consolidate Jobs</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleSortForRipCuts}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition-all ${
-                        isRipSorted
-                          ? 'bg-[#FACC15] text-zinc-950 ring-2 ring-yellow-300'
-                          : 'bg-[#FACC15] hover:bg-[#EAB308] text-zinc-950'
-                      }`}
-                    >
-                      <ArrowDownWideNarrow className="w-3.5 h-3.5 stroke-[2.3]" />
-                      <span>Sort for Rip Cuts (W ↓)</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Live Consolidation & Saw-Setup Status Strip */}
-                {(isConsolidated || isRipSorted) && (
-                  <div className="pt-2 border-t border-zinc-800 flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-300">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {isConsolidated && (
-                        <span className="inline-flex items-center gap-1 bg-zinc-800 text-[#FACC15] px-2 py-0.5 rounded font-bold">
-                          Merged {aggregationStats?.duplicateRowsEliminated ?? 0} Identical
-                          Part Schedules
-                        </span>
-                      )}
-                      {isRipSorted && (
-                        <span className="inline-flex items-center gap-1 bg-zinc-800 text-emerald-300 px-2 py-0.5 rounded font-bold">
-                          Rip Sequence Active: Grouped by Material &amp; H → Width (W ↓) →
-                          Length (L ↓) ({aggregationStats?.fenceSetupsCount ?? 5} Fence
-                          Setups)
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Master Table */}
-              <div className="overflow-x-auto flex-1">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b-2 border-zinc-200 text-[11px] font-bold uppercase tracking-wider text-zinc-500">
-                      <th className="py-2.5 pl-2.5 pr-1.5 w-11">#</th>
-                      <th className="py-2.5 px-2">PART &amp; SOURCE JOBS</th>
-                      <th className="py-2.5 px-1.5 w-14 text-center">QTY</th>
-                      <th className="py-2.5 px-1.5 w-14">L</th>
-                      <th className="py-2.5 px-1.5 w-14">W ↓</th>
-                      <th className="py-2.5 px-1.5 w-12">H</th>
-                      <th className="py-2.5 px-2">CORNER</th>
-                      <th className="py-2.5 px-2">MATERIAL</th>
-                      <th className="py-2.5 pl-1 pr-2.5 text-right w-18">ACTIONS</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 text-[13px]">
-                    {parts.map((row) => {
-                      const isSelected = row.id === selectedId
-                      const isEditing = row.id === editingId
-                      const qtyVal = Number(row.qty) || 1
-                      const sourceJobs =
-                        Array.isArray(row.source_jobs) && row.source_jobs.length > 0
-                          ? row.source_jobs
-                          : ['Job #1']
-                      const isMultiJob = row.consolidated || sourceJobs.length > 1
-
-                      return (
-                        <tr
-                          key={row.id}
-                          onClick={() => handleRowClick(row.id)}
-                          className={`group cursor-pointer transition-colors ${
-                            isSelected
-                              ? 'bg-yellow-50/90 hover:bg-yellow-100/80 border-l-4 border-l-[#FACC15]'
-                              : 'hover:bg-zinc-50 border-l-4 border-l-transparent'
-                          }`}
-                        >
-                          {/* # Badge */}
-                          <td className="py-2 pl-2.5 pr-1.5 font-medium">
-                            <span
-                              className={`inline-flex items-center justify-center text-xs font-bold px-1.5 py-0.5 rounded ${
-                                isSelected
-                                  ? 'text-zinc-950 bg-[#FACC15]'
-                                  : 'text-zinc-500'
-                              }`}
-                            >
-                              {row.num}
-                            </span>
-                          </td>
-
-                          {/* PART + CONSOLIDATED SOURCE JOB BADGES */}
-                          <td className="py-2 px-2 font-semibold text-zinc-900">
-                            {isEditing ? (
-                              <input
-                                type="text"
-                                value={editDraft.part}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) =>
-                                  setEditDraft({ ...editDraft, part: e.target.value })
-                                }
-                                className="w-28 px-2 py-0.5 text-xs bg-white border-2 border-[#EAB308] rounded focus:outline-none"
-                              />
-                            ) : (
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <span>{row.part}</span>
-                                {isMultiJob && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-[#FACC15] text-zinc-950 border border-[#EAB308]">
-                                    MERGED ×{qtyVal}
-                                  </span>
-                                )}
-                                {sourceJobs.map((jobTag) => (
-                                  <span
-                                    key={jobTag}
-                                    className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                      jobTag === 'OCR Scan'
-                                        ? 'bg-zinc-900 text-[#FACC15]'
-                                        : 'bg-zinc-100 text-zinc-700 border border-zinc-300'
-                                    }`}
-                                  >
-                                    {jobTag}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </td>
-
-                          {/* QTY */}
-                          <td className="py-2 px-1.5 text-center tabular-nums">
-                            {isEditing ? (
-                              <input
-                                type="number"
-                                min="1"
-                                value={editDraft.qty}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) =>
-                                  setEditDraft({ ...editDraft, qty: e.target.value })
-                                }
-                                className="w-12 px-1 py-0.5 text-xs text-center bg-white border-2 border-[#EAB308] rounded focus:outline-none"
-                              />
-                            ) : (
-                              <span
-                                className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-xs font-extrabold ${
-                                  isMultiJob
-                                    ? 'bg-zinc-900 text-[#FACC15]'
-                                    : 'bg-zinc-100 text-zinc-800'
-                                }`}
-                              >
-                                ×{qtyVal}
-                              </span>
-                            )}
-                          </td>
-
-                          {/* L */}
-                          <td className="py-2 px-1.5 text-zinc-700 tabular-nums">
-                            {isEditing ? (
-                              <input
-                                type="number"
-                                value={editDraft.l}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) =>
-                                  setEditDraft({ ...editDraft, l: e.target.value })
-                                }
-                                className="w-14 px-1.5 py-0.5 text-xs bg-white border-2 border-[#EAB308] rounded focus:outline-none"
-                              />
-                            ) : (
-                              formatDim(row.l)
-                            )}
-                          </td>
-
-                          {/* W */}
-                          <td className="py-2 px-1.5 text-zinc-900 font-bold tabular-nums">
-                            {isEditing ? (
-                              <input
-                                type="number"
-                                value={editDraft.w}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) =>
-                                  setEditDraft({ ...editDraft, w: e.target.value })
-                                }
-                                className="w-14 px-1.5 py-0.5 text-xs bg-white border-2 border-[#EAB308] rounded focus:outline-none"
-                              />
-                            ) : (
-                              <span
-                                className={
-                                  isRipSorted
-                                    ? 'bg-yellow-100/90 text-zinc-950 px-1.5 py-0.5 rounded border border-[#EAB308]'
-                                    : ''
-                                }
-                              >
-                                {formatDim(row.w)}
-                              </span>
-                            )}
-                          </td>
-
-                          {/* H */}
-                          <td className="py-2 px-1.5 text-zinc-700 tabular-nums">
-                            {isEditing ? (
-                              <input
-                                type="number"
-                                value={editDraft.h}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) =>
-                                  setEditDraft({ ...editDraft, h: e.target.value })
-                                }
-                                className="w-12 px-1.5 py-0.5 text-xs bg-white border-2 border-[#EAB308] rounded focus:outline-none"
-                              />
-                            ) : (
-                              formatDim(row.h)
-                            )}
-                          </td>
-
-                          {/* CORNER */}
-                          <td className="py-2 px-2 text-zinc-600">
-                            {isEditing ? (
-                              <select
-                                value={editDraft.corner}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) =>
-                                  setEditDraft({ ...editDraft, corner: e.target.value })
-                                }
-                                className="px-1.5 py-0.5 text-xs bg-white border-2 border-[#EAB308] rounded focus:outline-none"
-                              >
-                                <option value="None">None</option>
-                                <option value="Edge 1x">Edge 1x</option>
-                                <option value="Edge 2x">Edge 2x</option>
-                              </select>
-                            ) : (
-                              <span
-                                className={
-                                  row.corner === 'None'
-                                    ? 'text-zinc-500'
-                                    : 'text-zinc-800 font-medium'
-                                }
-                              >
-                                {row.corner}
-                              </span>
-                            )}
-                          </td>
-
-                          {/* MATERIAL */}
-                          <td className="py-2 px-2 text-zinc-800 font-medium">
-                            {isEditing ? (
-                              <select
-                                value={editDraft.material}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) =>
-                                  setEditDraft({ ...editDraft, material: e.target.value })
-                                }
-                                className="px-1.5 py-0.5 text-xs bg-white border-2 border-[#EAB308] rounded focus:outline-none"
-                              >
-                                <option value="18mm Marine Plywood">
-                                  18mm Marine Plywood
-                                </option>
-                                <option value="MDF">MDF</option>
-                                <option value="Plywood">Plywood</option>
-                                <option value="Oak Veneer">Oak Veneer</option>
-                              </select>
-                            ) : (
-                              row.material
-                            )}
-                          </td>
-
-                          {/* ACTIONS (Dark charcoal icons with yellow hover effects) */}
-                          <td className="py-2 pl-1 pr-2.5 text-right">
-                            {isEditing ? (
-                              <div className="inline-flex items-center justify-end gap-1">
-                                <button
-                                  type="button"
-                                  title="Save changes"
-                                  onClick={saveEdit}
-                                  className="p-1 rounded-md bg-[#FACC15] text-zinc-950 hover:bg-[#EAB308] transition-colors"
-                                >
-                                  <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-                                </button>
-                                <button
-                                  type="button"
-                                  title="Cancel"
-                                  onClick={cancelEdit}
-                                  className="p-1 rounded-md text-zinc-600 hover:bg-zinc-200 transition-colors"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="inline-flex items-center justify-end gap-1.5 text-zinc-700">
-                                <button
-                                  type="button"
-                                  title="Edit row"
-                                  onClick={(e) => startEditing(e, row)}
-                                  className="p-1 rounded-md text-zinc-700 hover:text-zinc-950 hover:bg-[#FACC15] transition-colors"
-                                >
-                                  <Pencil className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  title="Delete row"
-                                  onClick={(e) => deleteRow(e, row)}
-                                  className="p-1 rounded-md text-zinc-700 hover:text-zinc-950 hover:bg-[#FACC15] transition-colors"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <CuttingListTable
+              parts={parts}
+              totalPiecesCount={totalPiecesCount}
+              unit={unit}
+              selectedId={selectedId}
+              editingId={editingId}
+              editDraft={editDraft}
+              isRipSorted={isRipSorted}
+              formatDim={formatDim}
+              onRowClick={handleRowClick}
+              onStartEditing={startEditing}
+              onChangeEditDraft={setEditDraft}
+              onSaveEdit={saveEdit}
+              onCancelEdit={cancelEdit}
+              onDeleteRow={deleteRow}
+              onAddPart={handleAddPart}
+              onExportCsv={handleExportCsv}
+              onExportPdf={handleExportPdf}
+            >
+              <ProjectTray
+                selectedJobs={selectedJobs}
+                onToggleJob={handleToggleJob}
+                isConsolidated={isConsolidated}
+                isRipSorted={isRipSorted}
+                aggregationStats={aggregationStats}
+                onConsolidateJobs={handleConsolidateJobs}
+                onSortForRipCuts={handleSortForRipCuts}
+              />
+            </CuttingListTable>
           </section>
 
           {/* ------------------------------------------------------------
-              C. RIGHT COLUMN (Inventory Stock & Scrap Tracker)
+              C. RIGHT COLUMN (`InventoryPanel.jsx`)
              ------------------------------------------------------------ */}
           <section className="lg:col-span-3 flex flex-col">
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 flex flex-col justify-between flex-1">
-              <div>
-                {/* Card Header */}
-                <div className="flex items-center justify-between mb-3 px-1">
-                  <h2 className="text-[16px] font-bold text-zinc-900">Inventory</h2>
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded">
-                    Stock &amp; Scrap
-                  </span>
-                </div>
-
-                {/* Compact Column Header: # | L | W | H | MAT */}
-                <div className="grid grid-cols-12 items-center text-[11px] font-bold uppercase tracking-wider text-zinc-500 border-b-2 border-zinc-200 pb-2 px-1">
-                  <div className="col-span-2">#</div>
-                  <div className="col-span-3">L</div>
-                  <div className="col-span-3">W</div>
-                  <div className="col-span-2">H</div>
-                  <div className="col-span-2 text-right">MAT</div>
-                </div>
-
-                {/* Stock Sheets List */}
-                <div className="divide-y divide-gray-100">
-                  {inventory.map((sheet) => (
-                    <div
-                      key={sheet.id}
-                      className="py-3 px-1 hover:bg-yellow-50/40 rounded-xl transition-colors"
-                    >
-                      {/* Sheet Dimensions Row */}
-                      <div className="grid grid-cols-12 items-center text-[12.5px] font-medium text-zinc-800">
-                        <div className="col-span-2 flex items-center gap-1.5 text-zinc-700">
-                          {sheet.iconType === 'clipboard' && (
-                            <ClipboardList className="w-3.5 h-3.5 text-zinc-800 shrink-0" />
-                          )}
-                          {sheet.iconType === 'layers' && (
-                            <Layers className="w-3.5 h-3.5 text-zinc-800 shrink-0" />
-                          )}
-                          {sheet.iconType === 'sheet' && (
-                            <FileSpreadsheet className="w-3.5 h-3.5 text-zinc-800 shrink-0" />
-                          )}
-                          <span className="font-bold text-zinc-900">#{sheet.num}</span>
-                        </div>
-                        <div className="col-span-3 tabular-nums text-zinc-900 font-semibold">
-                          {formatDim(sheet.l)}{' '}
-                          <span className="text-zinc-400 font-normal">×</span>
-                        </div>
-                        <div className="col-span-3 tabular-nums text-zinc-900 font-semibold">
-                          {formatDim(sheet.w)}{' '}
-                          <span className="text-zinc-400 font-normal">×</span>
-                        </div>
-                        <div className="col-span-2 tabular-nums text-zinc-800">
-                          {formatDim(sheet.h)}
-                          <span className="text-[11px] text-zinc-500 ml-0.5">
-                            {unit === 'metric' ? 'mm' : '"'}
-                          </span>
-                        </div>
-                        <div className="col-span-2 text-right font-bold text-zinc-900 truncate">
-                          {sheet.material}
-                        </div>
-                      </div>
-
-                      {/* Usage Progress Bar Underneath: Yellow/Amber/Gold over Dark Charcoal Track */}
-                      <div className="mt-2 flex items-center gap-2.5 pl-5">
-                        <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${sheet.barColor} transition-all duration-300`}
-                            style={{ width: `${sheet.usedPercent}%` }}
-                          />
-                        </div>
-                        <span className="text-[11px] font-bold text-zinc-700 shrink-0 tabular-nums">
-                          {sheet.usedPercent}% used
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Row #4: Input fields to enter a new sheet length, width, and material */}
-                  <div className="py-3 px-1">
-                    <div className="grid grid-cols-12 items-center gap-1.5 text-[12.5px]">
-                      <div className="col-span-2 font-bold text-zinc-600 pl-1">
-                        #{nextInventoryIndex}
-                      </div>
-                      <div className="col-span-3">
-                        <input
-                          type="number"
-                          aria-label="New sheet length"
-                          value={newSheet.l}
-                          onChange={(e) =>
-                            setNewSheet({ ...newSheet, l: e.target.value })
-                          }
-                          onKeyDown={(e) => e.key === 'Enter' && handleAddMaterial()}
-                          placeholder="2440"
-                          className="w-full px-2 py-1 text-xs font-semibold text-zinc-900 bg-zinc-50 border border-zinc-300 rounded-lg focus:outline-none focus:border-[#EAB308] focus:bg-white transition-colors tabular-nums"
-                        />
-                      </div>
-                      <div className="col-span-3">
-                        <input
-                          type="number"
-                          aria-label="New sheet width"
-                          value={newSheet.w}
-                          onChange={(e) =>
-                            setNewSheet({ ...newSheet, w: e.target.value })
-                          }
-                          onKeyDown={(e) => e.key === 'Enter' && handleAddMaterial()}
-                          placeholder="1220"
-                          className="w-full px-2 py-1 text-xs font-semibold text-zinc-900 bg-zinc-50 border border-zinc-300 rounded-lg focus:outline-none focus:border-[#EAB308] focus:bg-white transition-colors tabular-nums"
-                        />
-                      </div>
-                      <div className="col-span-2">
-                        <input
-                          type="number"
-                          aria-label="New sheet thickness"
-                          value={newSheet.h}
-                          onChange={(e) =>
-                            setNewSheet({ ...newSheet, h: e.target.value })
-                          }
-                          onKeyDown={(e) => e.key === 'Enter' && handleAddMaterial()}
-                          placeholder="18"
-                          className="w-full px-1.5 py-1 text-xs font-semibold text-zinc-900 bg-zinc-50 border border-zinc-300 rounded-lg focus:outline-none focus:border-[#EAB308] focus:bg-white transition-colors tabular-nums"
-                        />
-                      </div>
-                      <div className="col-span-2">
-                        <input
-                          type="text"
-                          aria-label="New sheet material"
-                          value={newSheet.material}
-                          onChange={(e) =>
-                            setNewSheet({ ...newSheet, material: e.target.value })
-                          }
-                          onKeyDown={(e) => e.key === 'Enter' && handleAddMaterial()}
-                          placeholder="MDF"
-                          className="w-full px-1.5 py-1 text-xs font-semibold text-zinc-900 bg-zinc-50 border border-zinc-300 rounded-lg focus:outline-none focus:border-[#EAB308] focus:bg-white transition-colors text-right"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Bottom Full-Width Action Button: "+ Add Material" (Industrial Yellow & Crisp Black Text) */}
-              <div className="pt-3 mt-2 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={handleAddMaterial}
-                  className="w-full py-2.5 px-4 rounded-xl bg-[#FACC15] hover:bg-[#EAB308] active:bg-[#CA8A04] text-zinc-950 font-bold text-[13px] flex items-center justify-center gap-1.5 shadow-xs transition-colors"
-                >
-                  <Plus className="w-4 h-4 stroke-[2.5]" />
-                  <span>+ Add Material</span>
-                </button>
-              </div>
-            </div>
+            <InventoryPanel
+              inventory={inventory}
+              unit={unit}
+              formatDim={formatDim}
+              newSheet={newSheet}
+              onSetNewSheet={setNewSheet}
+              onAddMaterial={handleAddMaterial}
+            />
           </section>
         </main>
       </div>

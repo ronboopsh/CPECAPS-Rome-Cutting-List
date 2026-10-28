@@ -1,0 +1,4 @@
+id,project_id,part_name,quantity,length,width,thickness,material,corner_cut,source
+part-101,Job #1,Base Cabinet Side,2,750.0,500.0,18.0,18mm Marine Plywood,Edge 1x,CAD
+part-102,Job #1,Base Shelf,2,564.0,480.0,18.0,18mm Marine Plywood,Edge 1x,CAD
+part-103,Job #2,Wardrobe Tall Gable,2,2100.0,600.0,18.0,18mm Marine Plywood,Edge 1x,CAD
