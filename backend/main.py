@@ -1,101 +1,164 @@
 """
-==============================================================================
-FASTAPI APPLICATION & ROUTE GATEWAY (`backend/main.py`)
-Owner: Pamela Calma
-Rome Cabinets - Automated Cutting List & Shop-Floor Coordinator
-==============================================================================
-Implements the canonical REST API endpoints specified in PROJECT_CONTEXT.md:
-  - POST /api/upload-cad
-  - POST /api/upload-ocr
-  - POST /api/aggregate
-  - GET  /api/inventory
-  - POST /api/inventory/match
+backend/main.py
+FastAPI Application & API Gateway for Rome Cabinets Shop-Floor Coordinator.
 """
 
-from __future__ import annotations
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 import os
-import sys
+import shutil
+import uuid
+from fastapi import FastAPI, File, UploadFile, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+# Import partner backend services
+from backend.cad_parser import parse_cad_file
+from backend.ocr_service import process_ocr_sheet
+from backend.aggregator import aggregate_projects
+from backend.inventory_db import get_inventory_stock, match_remnants
 
-from backend.aggregator import (
-    DEFAULT_PROJECT_SCHEDULES,
-    aggregate_project_schedules,
-    sort_for_table_saw_rip_cuts,
+app = FastAPI(
+    title="Rome Cabinets API Gateway",
+    version="1.0.0",
+    description="Shop-Floor Coordinator API for CAD ingestion, OCR cutlist review, aggregation, and remnant matching."
 )
-from backend.cad_parser import parse_cad_payload
-from backend.inventory_db import get_inventory_items, match_remnant_scrap
-from backend.ocr_service import extract_cutlist_from_image
 
-try:
-    from fastapi import FastAPI, HTTPException
-    from fastapi.middleware.cors import CORSMiddleware
-    HAS_FASTAPI = True
-except BaseException:
-    FastAPI = None  # type: ignore
-    HAS_FASTAPI = False
+# Enable CORS for Vite frontend development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
+TEMP_UPLOAD_DIR = "/tmp/rome_uploads"
+os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
 
-if HAS_FASTAPI:
-    app = FastAPI(
-        title="Rome Cabinets — Automated Cutting List & Shop-Floor Coordinator API",
-        version="2.5.0",
-    )
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# ----------------- Data Models -----------------
 
-    @app.post("/api/upload-cad")
-    def api_upload_cad(payload: Dict[str, Any]) -> Dict[str, Any]:
-        try:
-            parts = parse_cad_payload(payload)
-            return {"status": "ok", "count": len(parts), "parts": parts}
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+class PartEntity(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    project_id: str
+    part_name: str
+    quantity: int
+    length: float
+    width: float
+    thickness: float
+    material: str
+    corner_cut: str = "None"
+    source: str = "CAD"  # "CAD" | "OCR"
+    confidence: Optional[float] = 1.0
+    remarks: Optional[str] = ""
+    source_jobs: Optional[List[str]] = None
 
-    @app.post("/api/upload-ocr")
-    def api_upload_ocr(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        image_path = (payload or {}).get("image_path", "sample_workshop_sheet.jpg")
-        sheet_id = (payload or {}).get("sheet_id")
-        return extract_cutlist_from_image(image_path=image_path, sheet_id=sheet_id)
+class OcrReviewCommitRequest(BaseModel):
+    project_id: str
+    parts: List[PartEntity]
 
-    @app.post("/api/aggregate")
-    def api_aggregate(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        project_ids: Optional[List[str]] = (payload or {}).get("project_ids")
-        agg = aggregate_project_schedules(DEFAULT_PROJECT_SCHEDULES, selected_jobs=project_ids)
-        rip = sort_for_table_saw_rip_cuts(agg["parts"])
-        return {
-            "status": "ok",
-            "parts": rip["parts"],
-            "stats": agg["stats"],
-            "unique_fence_setups": rip["unique_fence_setups"],
-        }
+class AggregateRequest(BaseModel):
+    project_ids: List[str]
 
-    @app.get("/api/inventory")
-    def api_get_inventory() -> Dict[str, Any]:
-        items = get_inventory_items()
-        return {"status": "ok", "items": items}
+class RemnantMatchRequest(BaseModel):
+    parts: List[PartEntity]
+    min_utilization: float = 0.70  # Hard constraint: >= 70% scrap utilization
 
-    @app.post("/api/inventory/match")
-    def api_match_inventory(part: Dict[str, Any]) -> Dict[str, Any]:
-        return match_remnant_scrap(part)
+# ----------------- Endpoints -----------------
 
+@app.get("/health")
+def health_check():
+    return {"status": "online", "system": "Rome Cabinets Shop-Floor Coordinator"}
 
-if __name__ == "__main__":
-    print("=" * 78)
-    print("ROME CABINETS — BACKEND SERVICE HEALTH CHECK")
-    print("=" * 78)
-    agg_res = aggregate_project_schedules(DEFAULT_PROJECT_SCHEDULES)
-    rip_res = sort_for_table_saw_rip_cuts(agg_res["parts"])
-    match_res = match_remnant_scrap(rip_res["parts"][1])
-    print(f"Consolidated Parts Ready : {len(rip_res['parts'])} unique rows")
-    print(f"Table Saw Fence Setups   : {rip_res['unique_fence_setups']} setups")
-    print(f"Remnant Scrap Match Test : {match_res['best_match']}")
-    print("=" * 78)
+@app.post("/api/upload-cad", response_model=List[PartEntity])
+async def upload_cad(file: UploadFile = File(...), project_id: str = "job-cad-default"):
+    """
+    Ingests .dae, .obj, or .csv cutlists.
+    Halts with 422 if model contains non-manifold or 0-thickness geometry.
+    """
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in [".dae", ".obj", ".csv"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported CAD format: {ext}. Permitted formats are .dae, .obj, and .csv."
+        )
+
+    temp_path = os.path.join(TEMP_UPLOAD_DIR, f"{uuid.uuid4()}_{file.filename}")
+    try:
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        parsed_parts = parse_cad_file(temp_path, project_id=project_id)
+        return parsed_parts
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"CAD ingestion error: {str(e)}")
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+@app.post("/api/upload-ocr")
+async def upload_ocr(file: UploadFile = File(...), project_id: str = "job-ocr-default"):
+    """
+    Ingests .png or .jpg photos of physical paper cutlists.
+    Runs OpenCV grid detection + EasyOCR and returns parts with cell confidence scores.
+    """
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in [".png", ".jpg", ".jpeg"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported image format: {ext}. Permitted formats are .png and .jpg."
+        )
+
+    temp_path = os.path.join(TEMP_UPLOAD_DIR, f"{uuid.uuid4()}_{file.filename}")
+    try:
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        # Returns extracted row parts + image URL / base64 for side-by-side preview
+        ocr_result = process_ocr_sheet(temp_path, project_id=project_id)
+        return ocr_result
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"OCR pipeline error: {str(e)}")
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+@app.post("/api/ocr/commit", response_model=List[PartEntity])
+async def commit_ocr_review(payload: OcrReviewCommitRequest):
+    """
+    Commits reviewed & human-corrected OCR parts into the working session database.
+    """
+    for part in payload.parts:
+        part.source = "OCR"
+        part.confidence = 1.0  # Certified 100% post-human review
+    return payload.parts
+
+@app.post("/api/aggregate", response_model=List[PartEntity])
+async def aggregate(payload: AggregateRequest):
+    """
+    Consolidates identical parts across multiple jobs and sorts by:
+    Material -> Thickness -> Width (Descending) for repetitive rip-cutting.
+    """
+    if not payload.project_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No project IDs supplied for aggregation.")
+    try:
+        consolidated_parts = aggregate_projects(payload.project_ids)
+        return consolidated_parts
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Aggregation error: {str(e)}")
+
+@app.get("/api/inventory")
+def fetch_inventory():
+    """Returns available full sheets and remnant scrap stock."""
+    return get_inventory_stock()
+
+@app.post("/api/inventory/match")
+def match_inventory_scraps(payload: RemnantMatchRequest):
+    """
+    Matches parts against remnant scrap pieces:
+    Constraints: Exact material, exact thickness, scrap dims >= part + kerf, area utilization >= 70%.
+    """
+    parts_data = [p.dict() for p in payload.parts]
+    matches = match_remnants(parts_data, min_utilization=payload.min_utilization)
+    return matches
