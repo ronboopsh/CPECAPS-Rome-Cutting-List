@@ -11,6 +11,9 @@ export const PROJECT_SCHEDULES = {
     shortLabel: 'Job 1 (Kitchen)',
     fullName: 'Job #1: Galvez Kitchen',
     client: 'Galvez Residence',
+    presetType: 'kitchen',
+    modelFile: null,
+    modelUrl: null,
     parts: [
       { id: 101, num: '#1', part: 'Side Panel', qty: 2, l: 750, w: 500, h: 18, corner: 'Edge 1x', material: '18mm Marine Plywood', source_jobs: ['Job #1'] },
       { id: 102, num: '#2', part: 'Base Shelf', qty: 2, l: 564, w: 480, h: 18, corner: 'Edge 1x', material: '18mm Marine Plywood', source_jobs: ['Job #1'] },
@@ -25,6 +28,9 @@ export const PROJECT_SCHEDULES = {
     shortLabel: 'Job 2 (Wardrobe)',
     fullName: 'Job #2: Wardrobe Unit',
     client: 'Master Suite Fit-Out',
+    presetType: 'wardrobe',
+    modelFile: null,
+    modelUrl: null,
     parts: [
       { id: 201, num: '#7', part: 'Side Panel', qty: 2, l: 750, w: 500, h: 18, corner: 'Edge 1x', material: '18mm Marine Plywood', source_jobs: ['Job #2'] },
       { id: 202, num: '#8', part: 'Wardrobe Tall Gable', qty: 2, l: 2100, w: 600, h: 18, corner: 'Edge 1x', material: '18mm Marine Plywood', source_jobs: ['Job #2'] },
@@ -38,6 +44,9 @@ export const PROJECT_SCHEDULES = {
     shortLabel: 'Job 3 (Drawer Bank)',
     fullName: 'Job #3: Drawer Bank',
     client: 'Workshop Island Unit',
+    presetType: 'drawer_bank',
+    modelFile: null,
+    modelUrl: null,
     parts: [
       { id: 301, num: '#12', part: 'Side Panel', qty: 2, l: 750, w: 500, h: 18, corner: 'Edge 1x', material: '18mm Marine Plywood', source_jobs: ['Job #3'] },
       { id: 302, num: '#13', part: 'Drawer Box Side', qty: 6, l: 450, w: 160, h: 18, corner: 'None', material: '18mm Marine Plywood', source_jobs: ['Job #3'] },

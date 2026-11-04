@@ -1,5 +1,5 @@
 import React from 'react'
-import { CheckCircle2, UserCheck } from 'lucide-react'
+import { CheckCircle2, Sun, Moon } from 'lucide-react'
 import RomeLogo from './RomeLogo'
 
 const TOP_NAV_ITEMS = [
@@ -12,20 +12,17 @@ const TOP_NAV_ITEMS = [
 ]
 
 export default function Header({
-  unit,
-  onSetUnit,
-  loggedIn,
-  onToggleLogin,
+  theme = 'light',
+  onToggleTheme,
   toastMessage,
   onNavClick,
   onOpenSplash,
-  partsCount,
-  totalPiecesCount,
-  inventoryCount,
   onTriggerToast,
   logoPath,
   preferCustomLogo,
 }) {
+  const isDark = theme === 'dark'
+
   return (
     <header className="w-full shadow-xs">
       {/* TIER 1: Utility & Navigation Bar (Solid Pitch Black / Dark Charcoal) */}
@@ -53,8 +50,8 @@ export default function Header({
             ))}
           </nav>
 
-          {/* Right Side: Workshop Account + Black & Yellow Unit Pill Switch */}
-          <div className="flex items-center gap-4">
+          {/* Right Side: Interactive Light / Dark Mode Theme Toggle Button */}
+          <div className="flex items-center gap-3">
             {toastMessage && (
               <div className="hidden md:flex items-center gap-1.5 text-xs font-semibold text-zinc-950 bg-[#FACC15] px-3 py-0.5 rounded-full">
                 <CheckCircle2 className="w-3.5 h-3.5 text-zinc-950" />
@@ -64,50 +61,40 @@ export default function Header({
 
             <button
               type="button"
-              onClick={onToggleLogin}
-              className="text-xs sm:text-[13px] font-medium text-zinc-300 hover:text-[#FACC15] transition-colors flex items-center gap-1.5"
+              onClick={onToggleTheme}
+              title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+              aria-label="Toggle Light and Dark Mode"
+              className="flex items-center bg-zinc-950 p-0.5 rounded-full border border-zinc-700 hover:border-[#FACC15] transition-all cursor-pointer"
             >
-              <UserCheck className="w-3.5 h-3.5 text-[#FACC15]" />
-              <span>
-                {loggedIn ? 'Rome Cabinets Portal' : 'Login to Workshop Account'}
+              <span
+                className={`px-2.5 py-0.5 rounded-full text-xs flex items-center gap-1 transition-all ${
+                  !isDark
+                    ? 'bg-[#FACC15] text-zinc-950 font-bold shadow-xs'
+                    : 'text-zinc-400 hover:text-zinc-100 font-medium'
+                }`}
+              >
+                <Sun className="w-3.5 h-3.5 stroke-[2.3]" />
+                <span>Light</span>
+              </span>
+              <span
+                className={`px-2.5 py-0.5 rounded-full text-xs flex items-center gap-1 transition-all ${
+                  isDark
+                    ? 'bg-[#FACC15] text-zinc-950 font-bold shadow-xs'
+                    : 'text-zinc-400 hover:text-zinc-100 font-medium'
+                }`}
+              >
+                <Moon className="w-3.5 h-3.5 stroke-[2.3]" />
+                <span>Dark</span>
               </span>
             </button>
-
-            <span className="text-zinc-700 hidden sm:inline">|</span>
-
-            {/* Integrated Imperial / Metric Pill Switch in Black & Yellow */}
-            <div className="flex items-center bg-zinc-950 p-0.5 rounded-full border border-zinc-700">
-              <button
-                type="button"
-                onClick={() => onSetUnit('imperial')}
-                className={`px-3 py-0.5 rounded-full text-xs transition-all ${
-                  unit === 'imperial'
-                    ? 'bg-[#FACC15] text-zinc-950 font-bold shadow-xs'
-                    : 'text-zinc-400 hover:text-zinc-100 font-medium'
-                }`}
-              >
-                Imperial
-              </button>
-              <button
-                type="button"
-                onClick={() => onSetUnit('metric')}
-                className={`px-3 py-0.5 rounded-full text-xs transition-all ${
-                  unit === 'metric'
-                    ? 'bg-[#FACC15] text-zinc-950 font-bold shadow-xs'
-                    : 'text-zinc-400 hover:text-zinc-100 font-medium'
-                }`}
-              >
-                Metric
-              </button>
-            </div>
           </div>
         </div>
       </div>
 
-      {/* TIER 2: Main Header Banner (Branding & Status Strip with <RomeLogo />) */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-[1680px] mx-auto px-4 lg:px-6 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          {/* Left Side: Official Rome Modular Systems Logo + Prominent "Rome Cabinets" Typography */}
+      {/* TIER 2: Trimmed Main Header Banner (Logo + "ROME CABINETS" + "help") */}
+      <div className="bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-800 transition-colors">
+        <div className="max-w-[1680px] mx-auto px-4 lg:px-6 py-3 flex items-center justify-between gap-2">
+          {/* Left Side: Official Rome Modular Systems Logo + Prominent "ROME CABINETS" Typography */}
           <div className="flex items-center gap-3.5">
             <button
               type="button"
@@ -123,55 +110,26 @@ export default function Header({
               />
             </button>
             <div className="flex items-baseline gap-2.5">
-              <h1 className="text-2xl font-extrabold tracking-tight text-zinc-950 uppercase">
+              <h1 className="text-2xl font-extrabold tracking-tight text-zinc-950 dark:text-zinc-100 uppercase transition-colors">
                 Rome{' '}
                 <span className="bg-[#FACC15] px-2 py-0.5 rounded text-zinc-950">
                   Cabinets
                 </span>
               </h1>
-              <span className="hidden md:inline-block text-[11px] font-bold uppercase tracking-widest text-zinc-500 border border-zinc-300 rounded px-1.5 py-0.5">
-                CNC · CAD · OCR v2.5
-              </span>
             </div>
           </div>
 
-          {/* Right Side: Two-Line Metadata and Status Block */}
-          <div className="sm:text-right">
-            <p className="text-[13.5px] font-bold text-zinc-900 tracking-tight">
-              Automated Cutting List &amp; Shop-Floor Coordinator
-            </p>
-            <div className="text-xs text-zinc-500 font-medium mt-0.5 flex flex-wrap sm:justify-end items-center gap-1.5">
-              <span className="inline-flex items-center gap-1 text-zinc-800 font-semibold">
-                <span className="w-2 h-2 rounded-full bg-[#EAB308] inline-block" />
-                Active Session
-              </span>
-              <span className="text-zinc-300">|</span>
-              <span className="font-semibold text-zinc-700">
-                {partsCount} Rows ({totalPiecesCount} Pcs)
-              </span>
-              <span className="text-zinc-300">|</span>
-              <button
-                type="button"
-                onClick={() =>
-                  onTriggerToast(
-                    `Shop Efficiency: 82% Yield across ${inventoryCount} Stock Sheets`
-                  )
-                }
-                className="hover:text-zinc-950 hover:underline decoration-[#FACC15] decoration-2 underline-offset-2 transition-colors"
-              >
-                Shop Statistics
-              </button>
-              <span className="text-zinc-300">|</span>
-              <button
-                type="button"
-                onClick={() =>
-                  onTriggerToast('Click any cutting list row to inspect 3D cut plane')
-                }
-                className="hover:text-zinc-950 hover:underline decoration-[#FACC15] decoration-2 underline-offset-2 transition-colors"
-              >
-                Help
-              </button>
-            </div>
+          {/* Right Side: Minimal "help" link */}
+          <div className="pr-2">
+            <button
+              type="button"
+              onClick={() =>
+                onTriggerToast('Click any cutting list row or 3D panel to inspect cut plane')
+              }
+              className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-[#FACC15] hover:underline decoration-[#FACC15] decoration-2 underline-offset-2 transition-colors font-medium"
+            >
+              help
+            </button>
           </div>
         </div>
       </div>

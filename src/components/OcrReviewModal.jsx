@@ -1,12 +1,92 @@
 import React, { useState } from 'react';
 import { AlertTriangle, Check, X, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 
-export default function OcrReviewModal({ isOpen, onClose, ocrData, onCommit }) {
-  if (!isOpen || !ocrData) return null;
+export const DEFAULT_OCR_EXTRACTED_ROWS = [
+  {
+    id: 'ocr-1',
+    part_name: 'Base Cabinet Side',
+    part: 'Base Cabinet Side',
+    quantity: 2,
+    qty: 2,
+    length: 750,
+    l: 750,
+    width: 500,
+    w: 500,
+    thickness: 18,
+    h: 18,
+    corner: 'Edge 1x',
+    material: '18mm Marine Plywood',
+    source_jobs: ['OCR Scan'],
+    confidence: 0.94,
+  },
+  {
+    id: 'ocr-2',
+    part_name: 'Adjustable Shelf',
+    part: 'Adjustable Shelf',
+    quantity: 3,
+    qty: 3,
+    length: 564,
+    l: 564,
+    width: 480,
+    w: 480,
+    thickness: 18,
+    h: 18,
+    corner: 'Edge 1x',
+    material: '18mm Marine Plywood',
+    source_jobs: ['OCR Scan'],
+    confidence: 0.72,
+  },
+  {
+    id: 'ocr-3',
+    part_name: 'Cabinet Door Slab',
+    part: 'Cabinet Door Slab',
+    quantity: 2,
+    qty: 2,
+    length: 746,
+    l: 746,
+    width: 296,
+    w: 296,
+    thickness: 18,
+    h: 18,
+    corner: 'Edge 2x',
+    material: 'MDF',
+    source_jobs: ['OCR Scan'],
+    confidence: 0.76,
+  },
+  {
+    id: 'ocr-4',
+    part_name: 'Top Stretcher Rail',
+    part: 'Top Stretcher Rail',
+    quantity: 2,
+    qty: 2,
+    length: 564,
+    l: 564,
+    width: 100,
+    w: 100,
+    thickness: 18,
+    h: 18,
+    corner: 'None',
+    material: '18mm Marine Plywood',
+    source_jobs: ['OCR Scan'],
+    confidence: 0.96,
+  },
+];
 
-  const [parts, setParts] = useState(ocrData.parts || []);
+export default function OcrReviewModal({
+  isOpen,
+  onClose,
+  ocrData,
+  onCommit,
+  onCommitParts,
+  imagePreviewUrl,
+  initialRows = DEFAULT_OCR_EXTRACTED_ROWS,
+}) {
+  if (!isOpen) return null;
+
+  const resolvedParts = ocrData?.parts || initialRows || DEFAULT_OCR_EXTRACTED_ROWS;
+  const [parts, setParts] = useState(resolvedParts);
   const [zoomLevel, setZoomLevel] = useState(1);
-  const imageUrl = ocrData.imageUrl || '';
+  const imageUrl = ocrData?.imageUrl || imagePreviewUrl || '';
 
   const handleCellChange = (index, field, value) => {
     setParts(prev => {
@@ -28,7 +108,19 @@ export default function OcrReviewModal({ isOpen, onClose, ocrData, onCommit }) {
   };
 
   const handleSaveAndCommit = () => {
-    onCommit(parts);
+    const normalized = parts.map((p) => ({
+      ...p,
+      part: p.part_name || p.part || 'Panel',
+      qty: Number(p.quantity ?? p.qty) || 1,
+      l: Number(p.length ?? p.l) || 0,
+      w: Number(p.width ?? p.w) || 0,
+      h: Number(p.thickness ?? p.h) || 18,
+      corner: p.corner || 'Edge 1x',
+      material: p.material || '18mm Marine Plywood',
+      source_jobs: p.source_jobs || ['OCR Scan'],
+    }));
+    if (onCommit) onCommit(normalized);
+    if (onCommitParts) onCommitParts(normalized);
     onClose();
   };
 

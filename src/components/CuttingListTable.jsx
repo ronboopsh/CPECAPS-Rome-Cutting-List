@@ -1,5 +1,6 @@
 import React from 'react'
 import { Plus, Pencil, Trash2, Check, X, Printer, FileDown } from 'lucide-react'
+import { MEASUREMENT_UNITS, normalizeUnitCode } from '../utils/exporter'
 
 /**
  * Master Interactive Cutting List Table (`src/components/CuttingListTable.jsx`)
@@ -9,6 +10,7 @@ export default function CuttingListTable({
   parts,
   totalPiecesCount,
   unit,
+  onSetUnit,
   selectedId,
   editingId,
   editDraft,
@@ -25,16 +27,38 @@ export default function CuttingListTable({
   onExportPdf,
   children,
 }) {
+  const activeUnit = normalizeUnitCode(unit)
+
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 flex flex-col flex-1">
+    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm p-4 flex flex-col flex-1 transition-colors">
       {/* Top Header Row */}
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3 px-1">
-        <div className="flex items-center gap-2.5">
-          <h2 className="text-[16px] font-bold text-zinc-900">Cutting List</h2>
-          <span className="text-xs font-medium text-zinc-500">
-            ({parts.length} rows · {totalPiecesCount} pcs ·{' '}
-            {unit === 'metric' ? 'mm' : 'in'})
-          </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-[16px] font-bold text-zinc-900 dark:text-zinc-100">
+            Cutting List
+          </h2>
+          <div className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            <span>
+              ({parts.length} rows · {totalPiecesCount} pcs ·
+            </span>
+            <select
+              aria-label="Cutting List measurement unit"
+              value={activeUnit}
+              onChange={(e) => onSetUnit?.(e.target.value)}
+              className="px-1.5 py-0.5 text-xs font-bold text-zinc-900 dark:text-[#FACC15] bg-zinc-100 dark:bg-zinc-800 hover:bg-[#FACC15]/40 dark:hover:bg-zinc-700 border border-zinc-300 dark:border-zinc-700 focus:border-[#EAB308] rounded-md focus:outline-none cursor-pointer transition-colors"
+            >
+              {MEASUREMENT_UNITS.map((u) => (
+                <option
+                  key={u.value}
+                  value={u.value}
+                  className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
+                >
+                  {u.value}
+                </option>
+              ))}
+            </select>
+            <span>)</span>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
@@ -42,7 +66,7 @@ export default function CuttingListTable({
             type="button"
             onClick={onExportPdf}
             title="Print ISO Shop Cut Sheet (PDF)"
-            className="inline-flex items-center gap-1 text-xs font-bold text-zinc-800 bg-zinc-100 hover:bg-zinc-200 px-2.5 py-1.5 rounded-lg transition-colors"
+            className="inline-flex items-center gap-1 text-xs font-bold text-zinc-800 dark:text-zinc-200 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 border border-transparent dark:border-zinc-700 px-2.5 py-1.5 rounded-lg transition-colors"
           >
             <Printer className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">PDF Sheet</span>
@@ -52,7 +76,7 @@ export default function CuttingListTable({
             type="button"
             onClick={onExportCsv}
             title="Export Excel / CSV Cutlist"
-            className="inline-flex items-center gap-1 text-xs font-bold text-zinc-800 bg-zinc-100 hover:bg-zinc-200 px-2.5 py-1.5 rounded-lg transition-colors"
+            className="inline-flex items-center gap-1 text-xs font-bold text-zinc-800 dark:text-zinc-200 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 border border-transparent dark:border-zinc-700 px-2.5 py-1.5 rounded-lg transition-colors"
           >
             <FileDown className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Excel / CSV</span>
@@ -76,7 +100,7 @@ export default function CuttingListTable({
       <div className="overflow-x-auto flex-1">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="border-b-2 border-zinc-200 text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+            <tr className="border-b-2 border-zinc-200 dark:border-zinc-800 text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
               <th className="py-2.5 pl-2.5 pr-1.5 w-11">#</th>
               <th className="py-2.5 px-2">PART &amp; SOURCE JOBS</th>
               <th className="py-2.5 px-1.5 w-14 text-center">QTY</th>
@@ -88,7 +112,7 @@ export default function CuttingListTable({
               <th className="py-2.5 pl-1 pr-2.5 text-right w-18">ACTIONS</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100 text-[13px]">
+          <tbody className="divide-y divide-gray-100 dark:divide-zinc-800 text-[13px]">
             {parts.map((row) => {
               const isSelected = row.id === selectedId
               const isEditing = row.id === editingId
@@ -105,8 +129,8 @@ export default function CuttingListTable({
                   onClick={() => onRowClick(row.id)}
                   className={`group cursor-pointer transition-colors ${
                     isSelected
-                      ? 'bg-yellow-50/90 hover:bg-yellow-100/80 border-l-4 border-l-[#FACC15]'
-                      : 'hover:bg-zinc-50 border-l-4 border-l-transparent'
+                      ? 'bg-yellow-50/90 dark:bg-yellow-500/15 hover:bg-yellow-100/80 dark:hover:bg-yellow-500/20 border-l-4 border-l-[#FACC15]'
+                      : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/60 border-l-4 border-l-transparent'
                   }`}
                 >
                   {/* # Badge */}
@@ -115,7 +139,7 @@ export default function CuttingListTable({
                       className={`inline-flex items-center justify-center text-xs font-bold px-1.5 py-0.5 rounded ${
                         isSelected
                           ? 'text-zinc-950 bg-[#FACC15]'
-                          : 'text-zinc-500'
+                          : 'text-zinc-500 dark:text-zinc-400'
                       }`}
                     >
                       {row.num}
@@ -123,7 +147,7 @@ export default function CuttingListTable({
                   </td>
 
                   {/* PART + CONSOLIDATED SOURCE JOB BADGES */}
-                  <td className="py-2 px-2 font-semibold text-zinc-900">
+                  <td className="py-2 px-2 font-semibold text-zinc-900 dark:text-zinc-100">
                     {isEditing ? (
                       <input
                         type="text"
@@ -132,7 +156,7 @@ export default function CuttingListTable({
                         onChange={(e) =>
                           onChangeEditDraft({ ...editDraft, part: e.target.value })
                         }
-                        className="w-28 px-2 py-0.5 text-xs bg-white border-2 border-[#EAB308] rounded focus:outline-none"
+                        className="w-28 px-2 py-0.5 text-xs bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 border-2 border-[#EAB308] rounded focus:outline-none"
                       />
                     ) : (
                       <div className="flex flex-wrap items-center gap-1.5">
@@ -147,8 +171,8 @@ export default function CuttingListTable({
                             key={jobTag}
                             className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${
                               jobTag === 'OCR Scan'
-                                ? 'bg-zinc-900 text-[#FACC15]'
-                                : 'bg-zinc-100 text-zinc-700 border border-zinc-300'
+                                ? 'bg-zinc-900 dark:bg-zinc-950 text-[#FACC15] border border-zinc-700'
+                                : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-300 dark:border-zinc-700'
                             }`}
                           >
                             {jobTag}
@@ -169,14 +193,14 @@ export default function CuttingListTable({
                         onChange={(e) =>
                           onChangeEditDraft({ ...editDraft, qty: e.target.value })
                         }
-                        className="w-12 px-1 py-0.5 text-xs text-center bg-white border-2 border-[#EAB308] rounded focus:outline-none"
+                        className="w-12 px-1 py-0.5 text-xs text-center bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 border-2 border-[#EAB308] rounded focus:outline-none"
                       />
                     ) : (
                       <span
                         className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-xs font-extrabold ${
                           isMultiJob
-                            ? 'bg-zinc-900 text-[#FACC15]'
-                            : 'bg-zinc-100 text-zinc-800'
+                            ? 'bg-zinc-900 dark:bg-zinc-950 text-[#FACC15]'
+                            : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200'
                         }`}
                       >
                         ×{qtyVal}
@@ -185,7 +209,7 @@ export default function CuttingListTable({
                   </td>
 
                   {/* L */}
-                  <td className="py-2 px-1.5 text-zinc-700 tabular-nums">
+                  <td className="py-2 px-1.5 text-zinc-700 dark:text-zinc-300 tabular-nums">
                     {isEditing ? (
                       <input
                         type="number"
@@ -194,7 +218,7 @@ export default function CuttingListTable({
                         onChange={(e) =>
                           onChangeEditDraft({ ...editDraft, l: e.target.value })
                         }
-                        className="w-14 px-1.5 py-0.5 text-xs bg-white border-2 border-[#EAB308] rounded focus:outline-none"
+                        className="w-14 px-1.5 py-0.5 text-xs bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 border-2 border-[#EAB308] rounded focus:outline-none"
                       />
                     ) : (
                       formatDim(row.l)
@@ -202,7 +226,7 @@ export default function CuttingListTable({
                   </td>
 
                   {/* W */}
-                  <td className="py-2 px-1.5 text-zinc-900 font-bold tabular-nums">
+                  <td className="py-2 px-1.5 text-zinc-900 dark:text-zinc-100 font-bold tabular-nums">
                     {isEditing ? (
                       <input
                         type="number"
@@ -211,13 +235,13 @@ export default function CuttingListTable({
                         onChange={(e) =>
                           onChangeEditDraft({ ...editDraft, w: e.target.value })
                         }
-                        className="w-14 px-1.5 py-0.5 text-xs bg-white border-2 border-[#EAB308] rounded focus:outline-none"
+                        className="w-14 px-1.5 py-0.5 text-xs bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 border-2 border-[#EAB308] rounded focus:outline-none"
                       />
                     ) : (
                       <span
                         className={
                           isRipSorted
-                            ? 'bg-yellow-100/90 text-zinc-950 px-1.5 py-0.5 rounded border border-[#EAB308]'
+                            ? 'bg-yellow-100/90 dark:bg-[#FACC15]/20 text-zinc-950 dark:text-[#FACC15] px-1.5 py-0.5 rounded border border-[#EAB308]'
                             : ''
                         }
                       >
@@ -227,7 +251,7 @@ export default function CuttingListTable({
                   </td>
 
                   {/* H */}
-                  <td className="py-2 px-1.5 text-zinc-700 tabular-nums">
+                  <td className="py-2 px-1.5 text-zinc-700 dark:text-zinc-300 tabular-nums">
                     {isEditing ? (
                       <input
                         type="number"
@@ -236,7 +260,7 @@ export default function CuttingListTable({
                         onChange={(e) =>
                           onChangeEditDraft({ ...editDraft, h: e.target.value })
                         }
-                        className="w-12 px-1.5 py-0.5 text-xs bg-white border-2 border-[#EAB308] rounded focus:outline-none"
+                        className="w-12 px-1.5 py-0.5 text-xs bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 border-2 border-[#EAB308] rounded focus:outline-none"
                       />
                     ) : (
                       formatDim(row.h)
@@ -244,7 +268,7 @@ export default function CuttingListTable({
                   </td>
 
                   {/* CORNER */}
-                  <td className="py-2 px-2 text-zinc-600">
+                  <td className="py-2 px-2 text-zinc-600 dark:text-zinc-400">
                     {isEditing ? (
                       <select
                         value={editDraft.corner}
@@ -252,7 +276,7 @@ export default function CuttingListTable({
                         onChange={(e) =>
                           onChangeEditDraft({ ...editDraft, corner: e.target.value })
                         }
-                        className="px-1.5 py-0.5 text-xs bg-white border-2 border-[#EAB308] rounded focus:outline-none"
+                        className="px-1.5 py-0.5 text-xs bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 border-2 border-[#EAB308] rounded focus:outline-none"
                       >
                         <option value="None">None</option>
                         <option value="Edge 1x">Edge 1x</option>
@@ -262,8 +286,8 @@ export default function CuttingListTable({
                       <span
                         className={
                           row.corner === 'None'
-                            ? 'text-zinc-500'
-                            : 'text-zinc-800 font-medium'
+                            ? 'text-zinc-500 dark:text-zinc-500'
+                            : 'text-zinc-800 dark:text-zinc-200 font-medium'
                         }
                       >
                         {row.corner}
@@ -272,7 +296,7 @@ export default function CuttingListTable({
                   </td>
 
                   {/* MATERIAL */}
-                  <td className="py-2 px-2 text-zinc-800 font-medium">
+                  <td className="py-2 px-2 text-zinc-800 dark:text-zinc-200 font-medium">
                     {isEditing ? (
                       <select
                         value={editDraft.material}
@@ -283,7 +307,7 @@ export default function CuttingListTable({
                             material: e.target.value,
                           })
                         }
-                        className="px-1.5 py-0.5 text-xs bg-white border-2 border-[#EAB308] rounded focus:outline-none"
+                        className="px-1.5 py-0.5 text-xs bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 border-2 border-[#EAB308] rounded focus:outline-none"
                       >
                         <option value="18mm Marine Plywood">
                           18mm Marine Plywood
@@ -313,18 +337,18 @@ export default function CuttingListTable({
                           type="button"
                           title="Cancel"
                           onClick={onCancelEdit}
-                          className="p-1 rounded-md text-zinc-600 hover:bg-zinc-200 transition-colors"
+                          className="p-1 rounded-md text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     ) : (
-                      <div className="inline-flex items-center justify-end gap-1.5 text-zinc-700">
+                      <div className="inline-flex items-center justify-end gap-1.5 text-zinc-700 dark:text-zinc-300">
                         <button
                           type="button"
                           title="Edit row"
                           onClick={(e) => onStartEditing(e, row)}
-                          className="p-1 rounded-md text-zinc-700 hover:text-zinc-950 hover:bg-[#FACC15] transition-colors"
+                          className="p-1 rounded-md text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-zinc-950 hover:bg-[#FACC15] transition-colors"
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
@@ -332,7 +356,7 @@ export default function CuttingListTable({
                           type="button"
                           title="Delete row"
                           onClick={(e) => onDeleteRow(e, row)}
-                          className="p-1 rounded-md text-zinc-700 hover:text-zinc-950 hover:bg-[#FACC15] transition-colors"
+                          className="p-1 rounded-md text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-zinc-950 hover:bg-[#FACC15] transition-colors"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
