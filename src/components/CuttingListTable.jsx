@@ -1,6 +1,7 @@
 import React from 'react'
 import { Plus, Pencil, Trash2, Check, X, Printer, FileDown } from 'lucide-react'
 import { MEASUREMENT_UNITS, normalizeUnitCode } from '../utils/exporter'
+import { disambiguateCutlistPartName, isAmbiguousCadName } from '../utils/panelClassifier'
 
 /**
  * Master Interactive Cutting List Table (`src/components/CuttingListTable.jsx`)
@@ -8,6 +9,7 @@ import { MEASUREMENT_UNITS, normalizeUnitCode } from '../utils/exporter'
  */
 export default function CuttingListTable({
   parts,
+  hardwareItems = [],
   totalPiecesCount,
   unit,
   onSetUnit,
@@ -17,6 +19,7 @@ export default function CuttingListTable({
   isRipSorted,
   formatDim,
   onRowClick,
+  onSelectHardware,
   onStartEditing,
   onChangeEditDraft,
   onSaveEdit,
@@ -113,20 +116,27 @@ export default function CuttingListTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-zinc-800 text-[13px]">
-            {parts.map((row) => {
+            {parts.map((row, rowIdx) => {
               const isSelected = row.id === selectedId
               const isEditing = row.id === editingId
               const qtyVal = Number(row.qty) || 1
+              const displayPartName =
+                row.panelRole && isAmbiguousCadName(row.part)
+                  ? row.panelRole
+                  : disambiguateCutlistPartName(row.part, rowIdx)
               const sourceJobs =
                 Array.isArray(row.source_jobs) && row.source_jobs.length > 0
                   ? row.source_jobs
                   : ['Job #1']
-              const isMultiJob = row.consolidated || sourceJobs.length > 1
+              const isMultiJob =
+                row.consolidated ||
+                sourceJobs.length > 1 ||
+                (Array.isArray(row.meshUuids) && row.meshUuids.length > 1)
 
               return (
                 <tr
                   key={row.id}
-                  onClick={() => onRowClick(row.id)}
+                  onClick={() => onRowClick(row.id, row)}
                   className={`group cursor-pointer transition-colors ${
                     isSelected
                       ? 'bg-yellow-50/90 dark:bg-yellow-500/15 hover:bg-yellow-100/80 dark:hover:bg-yellow-500/20 border-l-4 border-l-[#FACC15]'
@@ -160,7 +170,7 @@ export default function CuttingListTable({
                       />
                     ) : (
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span>{row.part}</span>
+                        <span>{displayPartName}</span>
                         {isMultiJob && (
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-[#FACC15] text-zinc-950 border border-[#EAB308]">
                             MERGED ×{qtyVal}
@@ -369,6 +379,68 @@ export default function CuttingListTable({
           </tbody>
         </table>
       </div>
+
+      {/* Bottom "Hardware & Fittings" Specification Note (Non-Sheet Stock Callout) */}
+      {Array.isArray(hardwareItems) && hardwareItems.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-zinc-800 flex flex-col gap-2">
+          {hardwareItems.map((hw) => {
+            const isHwSelected = selectedId === hw.id
+            const qtyCount = Number(hw.qty) || 1
+            return (
+              <div
+                key={hw.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => onSelectHardware?.(hw)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    onSelectHardware?.(hw)
+                  }
+                }}
+                className={`rounded-xl border-l-4 border-l-[#FACC15] border transition-all cursor-pointer px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-3 ${
+                  isHwSelected
+                    ? 'bg-zinc-900 dark:bg-zinc-950 border-[#FACC15] ring-1 ring-[#FACC15] shadow-md'
+                    : 'bg-zinc-900/95 dark:bg-zinc-950/90 border-zinc-800 hover:border-[#FACC15]/70'
+                }`}
+              >
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-[#FACC15] text-zinc-950 uppercase tracking-wider">
+                      Hardware &amp; Fittings
+                    </span>
+                    <span className="text-xs font-bold text-zinc-100">
+                      {hw.title || 'Hardware / Leg Assemblies (Non-Sheet Stock)'}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 mt-0.5 text-xs">
+                    <span className="font-bold text-[#FACC15]">
+                      {hw.part || 'Cabinet Foot / Leg'} (×{qtyCount})
+                    </span>
+                    <span className="text-zinc-500">·</span>
+                    <span className="font-mono font-semibold text-zinc-200">
+                      {formatDim(hw.l)} {activeUnit} × {formatDim(hw.w)} {activeUnit} ×{' '}
+                      {formatDim(hw.h)} {activeUnit}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:items-end gap-0.5">
+                  <span className="text-[11px] font-medium text-zinc-400">
+                    {hw.remarks ||
+                      'Solid hardware component — excluded from 18mm sheet cutlist'}
+                  </span>
+                  <span className="text-[10px] font-bold text-[#FACC15]">
+                    {isHwSelected
+                      ? 'Highlighting all 4 feet in 3D view'
+                      : 'Click to highlight feet in 3D view'}
+                  </span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

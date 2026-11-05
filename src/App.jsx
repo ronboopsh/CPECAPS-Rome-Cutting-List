@@ -26,6 +26,10 @@ import {
   exportToCSV,
   exportToPDF,
 } from './utils/exporter'
+import {
+  disambiguateCutlistPartName,
+  isAmbiguousCadName,
+} from './utils/panelClassifier'
 
 // ============================================================================
 // LOGO CONFIGURATION (EASY IMAGE SWAP):
@@ -123,6 +127,7 @@ export default function App() {
 
   // Cutting list state (trimmed down: starts empty until user selects/consolidates/adds/uploads)
   const [parts, setParts] = useState([])
+  const [hardwareItems, setHardwareItems] = useState([])
   const [selectedId, setSelectedId] = useState(null)
 
   // Inline edit state
@@ -148,6 +153,7 @@ export default function App() {
   const [focusTrigger, setFocusTrigger] = useState(0)
   const [resetTrigger, setResetTrigger] = useState(0)
   const [isDesignExpanded, setIsDesignExpanded] = useState(false)
+  const [isExploded, setIsExploded] = useState(false)
 
   // Inventory stock state & new row (#4) draft inputs
   const [inventory, setInventory] = useState(INITIAL_INVENTORY)
@@ -192,7 +198,11 @@ export default function App() {
       }
 
       const rawParts = getRawSelectedParts(finalJobs, projects)
+      const activeId = !finalJobs.includes(jobId)
+        ? finalJobs[finalJobs.length - 1]
+        : jobId
       setParts(rawParts)
+      setHardwareItems(projects[activeId]?.hardwareItems || [])
       setIsConsolidated(false)
       setIsRipSorted(false)
       setAggregationStats(null)
@@ -318,10 +328,14 @@ export default function App() {
       headers.forEach((h, i) => {
         rowObj[h] = cols[i] ?? ''
       })
+      const rawPartName = rowObj.part_name || rowObj.part || `Panel #${idx + 1}`
+      const resolvedRole = disambiguateCutlistPartName(rawPartName, idx)
       return {
         id: Date.now() + idx,
+        panelIndex: idx,
         num: `#${idx + 1}`,
-        part: rowObj.part_name || rowObj.part || `Panel #${idx + 1}`,
+        part: resolvedRole,
+        panelRole: resolvedRole,
         qty: Number(rowObj.quantity || rowObj.qty || rowObj.count) || 1,
         l: Number(rowObj.length || rowObj.l) || 750,
         w: Number(rowObj.width || rowObj.w) || 500,
@@ -351,11 +365,14 @@ export default function App() {
 
     const objectUrl = is3dMesh ? URL.createObjectURL(file) : null
 
+    const initialPartRole = disambiguateCutlistPartName(`${baseName} Panel`, 0)
     const defaultFallbackParts = [
       {
         id: Date.now() + 1,
+        panelIndex: 0,
         num: '#1',
-        part: `${baseName} Panel`,
+        part: initialPartRole,
+        panelRole: initialPartRole,
         qty: 1,
         l: 750,
         w: 500,
@@ -412,14 +429,43 @@ export default function App() {
     triggerToast(`Created & selected ${shortLabel} from "${file.name}"`)
   }
 
-  const handleModelPartsExtracted = (extractedParts) => {
+  const handleModelPartsExtracted = (
+    extractedParts,
+    _label = '',
+    extractedHardware = []
+  ) => {
     if (!Array.isArray(extractedParts) || extractedParts.length === 0) return
     const targetJobId = activeProjectId || selectedJobs[selectedJobs.length - 1] || 'Job #1'
-    const tagged = extractedParts.map((p, idx) => ({
-      ...p,
-      num: `#${idx + 1}`,
-      source_jobs: [targetJobId],
-    }))
+    const tagged = extractedParts.map((p, idx) => {
+      const cleanRole =
+        p.panelRole && isAmbiguousCadName(p.part)
+          ? p.panelRole
+          : disambiguateCutlistPartName(p.part, idx)
+      return {
+        ...p,
+        meshUuids: Array.isArray(p.meshUuids)
+          ? p.meshUuids
+          : p.meshUuid
+          ? [p.meshUuid]
+          : [],
+        panelIndex: typeof p.panelIndex === 'number' ? p.panelIndex : idx,
+        panelIndices: Array.isArray(p.panelIndices)
+          ? p.panelIndices
+          : [typeof p.panelIndex === 'number' ? p.panelIndex : idx],
+        num: `#${idx + 1}`,
+        part: cleanRole,
+        panelRole: p.panelRole || cleanRole,
+        source_jobs: [targetJobId],
+      }
+    })
+
+    // Dynamically consolidate identical & near-identical panels (|H| <= 0.5mm, |L|,|W| <= 2.0mm)
+    const { parts: consolidatedParts, stats } = aggregateProjectCutlists(tagged, {
+      requireStrictCorner: true,
+      matchRoleFamily: true,
+    })
+
+    const validHardware = Array.isArray(extractedHardware) ? extractedHardware : []
 
     setProjects((prev) => {
       const existingJob = prev[targetJobId]
@@ -428,12 +474,16 @@ export default function App() {
         ...prev,
         [targetJobId]: {
           ...existingJob,
-          parts: tagged,
+          parts: consolidatedParts,
+          hardwareItems: validHardware,
         },
       }
     })
-    setParts(tagged)
-    setSelectedId(tagged[0]?.id || null)
+    setParts(consolidatedParts)
+    setHardwareItems(validHardware)
+    setIsConsolidated(stats.duplicateRowsEliminated > 0)
+    setAggregationStats(stats)
+    setSelectedId(consolidatedParts[0]?.id || null)
   }
 
   const handleModelUpload = (file) => {
@@ -512,6 +562,62 @@ export default function App() {
     }
   }
 
+  const handle3dSelectPart = (partId, partRow, rawHitData) => {
+    if (partRow && partId != null) {
+      setSelectedId(partId)
+      if (partRow.type === 'hardware' || partRow.isHardware) {
+        triggerToast(
+          `Selected ${partRow.part} (×${partRow.qty || 1}) from 3D model`
+        )
+      } else {
+        triggerToast(`Selected ${partRow.num} (${partRow.part}) from 3D model`)
+      }
+      return
+    }
+
+    if (rawHitData?.isHardware && hardwareItems.length > 0) {
+      const hwItem = hardwareItems[0]
+      setSelectedId(hwItem.id)
+      triggerToast(`Selected ${hwItem.part} (×${hwItem.qty || 1}) from 3D model`)
+      return
+    }
+
+    // If the Cutting List table is currently empty, populate from the active project and select the matching row
+    if (parts.length === 0) {
+      const targetJobId = activeProjectId || selectedJobs[0] || 'Job #1'
+      const loadedRows = getRawSelectedParts([targetJobId], projects)
+      if (loadedRows.length > 0) {
+        setParts(loadedRows)
+        const hitUuid = rawHitData?.meshUuid || rawHitData?.key || null
+        const hitRole = String(
+          rawHitData?.panelRole || rawHitData?.partName || ''
+        ).toLowerCase()
+        const hitCat = String(rawHitData?.category || '').toLowerCase()
+        const matched =
+          (hitUuid &&
+            loadedRows.find(
+              (r) => Array.isArray(r.meshUuids) && r.meshUuids.includes(hitUuid)
+            )) ||
+          loadedRows.find((r) => {
+            const rp = String(r.part || '').toLowerCase()
+            if (rp === hitRole) return true
+            if (hitRole.includes('stretcher') && rp.includes('stretcher')) return true
+            if (hitRole.includes('divider') && rp.includes('divider')) return true
+            if (hitRole.includes('side') && rp.includes('side') && !hitRole.includes('divider')) return true
+            if (hitRole.includes('bottom') && (rp.includes('base') || rp.includes('bottom'))) return true
+            if (hitRole.includes('shelf') && rp.includes('shelf') && !hitRole.includes('stretcher')) return true
+            if (hitRole.includes('top') && rp.includes('top') && !hitRole.includes('stretcher') && !rp.includes('stretcher')) return true
+            if (hitRole.includes('door') && (rp.includes('door') || rp.includes('front'))) return true
+            if (hitCat && rp.includes(hitCat)) return true
+            return false
+          }) ||
+          loadedRows[0]
+        setSelectedId(matched.id)
+        triggerToast(`Selected ${matched.num} (${matched.part}) from 3D model`)
+      }
+    }
+  }
+
   // Cutting list row actions
   const handleRowClick = (id) => {
     if (editingId === id) return
@@ -520,6 +626,14 @@ export default function App() {
       setActiveProjectId(clickedRow.source_jobs[0])
     }
     setSelectedId((prev) => (prev === id ? null : id))
+  }
+
+  const handleSelectHardware = (hwItem) => {
+    if (!hwItem) return
+    setSelectedId((prev) => (prev === hwItem.id ? null : hwItem.id))
+    triggerToast(
+      `Highlighting ${hwItem.part} (×${hwItem.qty || 1}) in 3D viewer`
+    )
   }
 
   const startEditing = (e, item) => {
@@ -612,7 +726,10 @@ export default function App() {
   }
 
   const selectedPartIndex = parts.findIndex((p) => p.id === selectedId)
-  const selectedPartObj = selectedPartIndex >= 0 ? parts[selectedPartIndex] : null
+  const selectedHardwareObj =
+    hardwareItems.find((hw) => hw.id === selectedId) || null
+  const selectedPartObj =
+    selectedPartIndex >= 0 ? parts[selectedPartIndex] : selectedHardwareObj
   const totalPiecesCount = parts.reduce((acc, p) => acc + (Number(p.qty) || 1), 0)
 
   // Resolve the currently active project for per-project 3D viewport synchronization
@@ -675,56 +792,85 @@ export default function App() {
               }
             />
 
-            {/* CARD 2: "Design" Per-Project 3D WebGL Viewport */}
-            <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm p-4 flex flex-col flex-1 min-h-[370px] relative transition-colors">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-md bg-zinc-900 dark:bg-zinc-800 flex items-center justify-center border border-transparent dark:border-zinc-700">
-                    <Box className="w-3.5 h-3.5 text-[#FACC15] stroke-[2.2]" />
+            {/* CARD 2: "Design" Per-Project 3D WebGL Viewport (Continuously Mounted in Normal & Fullscreen Modes) */}
+            <div
+              className={
+                isDesignExpanded
+                  ? 'fixed inset-0 z-50 bg-zinc-950/65 backdrop-blur-xs flex items-center justify-center p-6'
+                  : 'flex flex-col flex-1 min-h-[370px]'
+              }
+              onClick={
+                isDesignExpanded ? () => setIsDesignExpanded(false) : undefined
+              }
+            >
+              <div
+                onClick={isDesignExpanded ? (e) => e.stopPropagation() : undefined}
+                className={
+                  isDesignExpanded
+                    ? 'bg-white dark:bg-zinc-900 rounded-2xl border-2 border-[#FACC15] shadow-2xl w-full max-w-4xl h-[82vh] max-h-[680px] p-6 flex flex-col relative transition-colors'
+                    : 'bg-white dark:bg-zinc-900 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm p-4 flex flex-col flex-1 min-h-[370px] relative transition-colors'
+                }
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-md bg-zinc-900 dark:bg-zinc-800 flex items-center justify-center border border-transparent dark:border-zinc-700">
+                      <Box className="w-3.5 h-3.5 text-[#FACC15] stroke-[2.2]" />
+                    </div>
+                    <h2 className="text-[15px] font-bold text-zinc-900 dark:text-zinc-100">
+                      {isDesignExpanded
+                        ? `Design — ${activeProject?.fullName || '3D Isometric Wireframe'}`
+                        : 'Design'}
+                    </h2>
                   </div>
-                  <h2 className="text-[15px] font-bold text-zinc-900 dark:text-zinc-100">
-                    Design
-                  </h2>
+                  <div className="flex items-center gap-2">
+                    {selectedPartObj ? (
+                      <span className="text-[11px] font-bold text-zinc-950 bg-[#FACC15] border border-[#EAB308] px-2 py-0.5 rounded-md">
+                        {selectedPartObj.num} {selectedPartObj.part}
+                      </span>
+                    ) : (
+                      <span className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">
+                        {activeProject?.shortLabel || activeProject?.id}
+                      </span>
+                    )}
+                    {isDesignExpanded && (
+                      <button
+                        type="button"
+                        title="Exit Fullscreen 3D Viewer"
+                        onClick={() => setIsDesignExpanded(false)}
+                        className="p-1.5 rounded-lg text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 hover:bg-[#FACC15] transition-colors"
+                      >
+                        <Minimize2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
-                {selectedPartObj ? (
-                  <span className="text-[11px] font-bold text-zinc-950 bg-[#FACC15] border border-[#EAB308] px-2 py-0.5 rounded-md">
-                    {selectedPartObj.num} {selectedPartObj.part}
-                  </span>
-                ) : (
-                  <span className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">
-                    {activeProject?.shortLabel || activeProject?.id}
-                  </span>
-                )}
-              </div>
 
-              <div className="flex-1 rounded-xl border border-gray-200 dark:border-zinc-800 bg-[#111827] relative flex items-center justify-center overflow-hidden">
-                <CabinetWireframe
-                  unit={unit}
-                  zoom={zoom}
-                  rotation={rotation}
-                  selectedPart={selectedPartObj}
-                  selectedPartIndex={selectedPartIndex}
-                  selectedPartName={selectedPartObj?.part || ''}
-                  parts={parts}
-                  presetType={activeProject?.presetType || 'kitchen'}
-                  modelFile={activeProject?.modelFile || null}
-                  modelUrl={activeProject?.modelUrl || null}
-                  focusTrigger={focusTrigger}
-                  resetTrigger={resetTrigger}
-                  onModelPartsExtracted={handleModelPartsExtracted}
-                  onSelectPart={(partId, partRow) => {
-                    setSelectedId(partId)
-                    if (partRow) {
-                      triggerToast(`Selected ${partRow.num} (${partRow.part}) from 3D model`)
-                    }
-                  }}
-                />
-
-                <div className="absolute bottom-3 right-3 flex items-center gap-2 z-10">
-                  <button
-                    type="button"
-                    title="Focus on Selected Part Bounding Box"
-                    onClick={() => {
+                <div className="flex-1 rounded-xl border border-gray-200 dark:border-zinc-800 bg-[#111827] relative flex items-center justify-center overflow-hidden">
+                  <CabinetWireframe
+                    unit={unit}
+                    zoom={zoom}
+                    rotation={rotation}
+                    selectedPart={selectedPartObj}
+                    selectedPartIndex={selectedPartIndex}
+                    selectedPartName={selectedPartObj?.part || ''}
+                    parts={parts}
+                    hardwareItems={hardwareItems}
+                    presetType={activeProject?.presetType || 'kitchen'}
+                    modelFile={activeProject?.modelFile || null}
+                    modelUrl={activeProject?.modelUrl || null}
+                    focusTrigger={focusTrigger}
+                    resetTrigger={resetTrigger}
+                    isExploded={isExploded}
+                    isExpanded={isDesignExpanded}
+                    onToggleExplode={(nextState) => {
+                      setIsExploded(nextState)
+                      triggerToast(
+                        nextState
+                          ? 'Exploded 3D cabinet assembly (120 mm displacement)'
+                          : 'Restored assembled 3D cabinet view'
+                      )
+                    }}
+                    onFocusCamera={() => {
                       setZoom(1)
                       setFocusTrigger((c) => c + 1)
                       triggerToast(
@@ -733,31 +879,16 @@ export default function App() {
                           : 'Focused 3D camera on cabinet'
                       )
                     }}
-                    className="w-8 h-8 rounded-full bg-white dark:bg-zinc-800 hover:bg-[#FACC15] dark:hover:bg-[#FACC15] border border-zinc-300 dark:border-zinc-700 hover:border-[#EAB308] shadow-sm flex items-center justify-center text-zinc-800 dark:text-zinc-200 hover:text-zinc-950 dark:hover:text-zinc-950 transition-all"
-                  >
-                    <Search className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    title="Reset Camera to Isometric View"
-                    onClick={() => {
+                    onResetCamera={() => {
                       setZoom(1)
                       setRotation(0)
                       setResetTrigger((c) => c + 1)
                       triggerToast('Reset 3D camera to standard isometric perspective')
                     }}
-                    className="w-8 h-8 rounded-full bg-white dark:bg-zinc-800 hover:bg-[#FACC15] dark:hover:bg-[#FACC15] border border-zinc-300 dark:border-zinc-700 hover:border-[#EAB308] shadow-sm flex items-center justify-center text-zinc-800 dark:text-zinc-200 hover:text-zinc-950 dark:hover:text-zinc-950 transition-all"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    title="Fullscreen / Expand 3D Viewer"
-                    onClick={() => setIsDesignExpanded(true)}
-                    className="w-8 h-8 rounded-full bg-white dark:bg-zinc-800 hover:bg-[#FACC15] dark:hover:bg-[#FACC15] border border-zinc-300 dark:border-zinc-700 hover:border-[#EAB308] shadow-sm flex items-center justify-center text-zinc-800 dark:text-zinc-200 hover:text-zinc-950 dark:hover:text-zinc-950 transition-all"
-                  >
-                    <Maximize2 className="w-3.5 h-3.5" />
-                  </button>
+                    onExpandViewer={() => setIsDesignExpanded((prev) => !prev)}
+                    onModelPartsExtracted={handleModelPartsExtracted}
+                    onSelectPart={handle3dSelectPart}
+                  />
                 </div>
               </div>
             </div>
@@ -769,6 +900,7 @@ export default function App() {
           <section className="lg:col-span-6 flex flex-col">
             <CuttingListTable
               parts={parts}
+              hardwareItems={hardwareItems}
               totalPiecesCount={totalPiecesCount}
               unit={unit}
               onSetUnit={setUnit}
@@ -778,6 +910,7 @@ export default function App() {
               isRipSorted={isRipSorted}
               formatDim={formatDim}
               onRowClick={handleRowClick}
+              onSelectHardware={handleSelectHardware}
               onStartEditing={startEditing}
               onChangeEditDraft={setEditDraft}
               onSaveEdit={saveEdit}
@@ -828,60 +961,6 @@ export default function App() {
         imagePreviewUrl={ocrPreviewUrl}
         initialRows={DEFAULT_OCR_EXTRACTED_ROWS}
       />
-
-      {/* Fullscreen 3D Technical Wireframe Modal when Expand is clicked */}
-      {isDesignExpanded && (
-        <div
-          className="fixed inset-0 z-50 bg-zinc-950/60 backdrop-blur-xs flex items-center justify-center p-6"
-          onClick={() => setIsDesignExpanded(false)}
-        >
-          <div
-            className="bg-white dark:bg-zinc-900 rounded-2xl border-2 border-[#FACC15] shadow-xl w-full max-w-3xl h-[540px] p-6 flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-zinc-900 dark:bg-zinc-800 flex items-center justify-center">
-                  <Box className="w-4 h-4 text-[#FACC15]" />
-                </div>
-                <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-                  Design — {activeProject?.fullName || '3D Isometric Wireframe'}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsDesignExpanded(false)}
-                className="p-1.5 rounded-lg text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 hover:bg-[#FACC15] transition-colors"
-              >
-                <Minimize2 className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="flex-1 rounded-xl border border-gray-200 dark:border-zinc-800 bg-[#111827] overflow-hidden">
-              <CabinetWireframe
-                unit={unit}
-                zoom={zoom}
-                rotation={rotation}
-                selectedPart={selectedPartObj}
-                selectedPartIndex={selectedPartIndex}
-                selectedPartName={selectedPartObj?.part || ''}
-                parts={parts}
-                presetType={activeProject?.presetType || 'kitchen'}
-                modelFile={activeProject?.modelFile || null}
-                modelUrl={activeProject?.modelUrl || null}
-                focusTrigger={focusTrigger}
-                resetTrigger={resetTrigger}
-                onModelPartsExtracted={handleModelPartsExtracted}
-                onSelectPart={(partId, partRow) => {
-                  setSelectedId(partId)
-                  if (partRow) {
-                    triggerToast(`Selected ${partRow.num} (${partRow.part}) from 3D model`)
-                  }
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

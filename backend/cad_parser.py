@@ -69,6 +69,76 @@ def sanitize_and_extract_part(
     }
 
 
+def decompose_compound_cad_component(
+    raw_comp: Dict[str, Any], default_thickness: float = 18.0
+) -> List[Dict[str, Any]]:
+    """
+    Decomposes a compound 3D bounding-box component (min_dim > 25 mm) into
+    discrete flat rectangular panels (Top/Bottom/Shelf, Left/Right/Divider,
+    Back/Front) and suppresses redundant stacked top faces.
+    """
+    l_val = float(raw_comp.get("l", raw_comp.get("length", 0.0)))
+    w_val = float(raw_comp.get("w", raw_comp.get("width", 0.0)))
+    h_val = float(raw_comp.get("h", raw_comp.get("thickness", 0.0)))
+    min_dim = min(l_val, w_val, h_val)
+    if min_dim <= 25.0:
+        return [raw_comp]
+
+    dims = sorted([l_val, w_val, h_val], reverse=True)
+    span_l, span_w, span_d = dims[0], dims[1], dims[2]
+    is_cubby = bool(raw_comp.get("flush_beneath_top") or span_d <= 120.0)
+
+    if is_cubby:
+        # Retain only vertical dividers (side legs) for upper cubby flush beneath Top Panel
+        return [
+            {
+                **raw_comp,
+                "part": "Divider L",
+                "l": span_w,
+                "w": span_d,
+                "h": default_thickness,
+            },
+            {
+                **raw_comp,
+                "part": "Divider R",
+                "l": span_w,
+                "w": span_d,
+                "h": default_thickness,
+            },
+        ]
+
+    return [
+        {
+            **raw_comp,
+            "part": "Back Panel",
+            "l": span_l,
+            "w": span_w,
+            "h": default_thickness,
+        },
+        {
+            **raw_comp,
+            "part": "Left Side Panel",
+            "l": span_w,
+            "w": span_d,
+            "h": default_thickness,
+        },
+        {
+            **raw_comp,
+            "part": "Right Side Panel",
+            "l": span_w,
+            "w": span_d,
+            "h": default_thickness,
+        },
+        {
+            **raw_comp,
+            "part": "Bottom Panel",
+            "l": span_l,
+            "w": span_d,
+            "h": default_thickness,
+        },
+    ]
+
+
 def parse_cad_payload(payload: Dict[str, Any], project_id: str = "Job #1") -> List[Dict[str, Any]]:
     """
     Parses a structured CAD payload containing a list of mesh components.
