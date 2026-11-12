@@ -29,17 +29,25 @@ export async function uploadCadFileApi(file) {
 }
 
 export async function uploadOcrImageApi(file) {
+  // No silent fallback here: if OCR fails, the caller must show a real error.
   const formData = new FormData()
   formData.append('file', file)
   let response
   try {
-    response = await fetch(`${API_BASE_URL}/api/upload-ocr`, { method: 'POST', body: formData })
+    response = await fetch(`${API_BASE_URL}/api/upload-ocr`, {
+      method: 'POST',
+      body: formData,
+    })
   } catch {
-    throw new Error('Cannot reach the OCR server. Is the backend running on ' + API_BASE_URL + '?')
+    throw new Error(`Cannot reach the OCR server. Is the backend running on ${API_BASE_URL}?`)
   }
   if (!response.ok) {
     let detail = `HTTP ${response.status}`
-    try { detail = (await response.json()).detail || detail } catch { /* ignore */ }
+    try {
+      detail = (await response.json()).detail || detail
+    } catch {
+      /* response was not JSON */
+    }
     throw new Error(detail)
   }
   return await response.json()
