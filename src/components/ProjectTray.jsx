@@ -3,7 +3,6 @@ import {
   CheckSquare,
   Square,
   GitMerge,
-  ArrowDownWideNarrow,
   Plus,
   Check,
   X,
@@ -94,19 +93,6 @@ export default function ProjectTray({
           >
             <GitMerge className="w-3.5 h-3.5 stroke-[2.3]" />
             <span>Consolidate Jobs</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={onSortForRipCuts}
-            className={`px-3 py-1.5 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition-all ${
-              isRipSorted
-                ? 'bg-[#FACC15] text-zinc-950 ring-2 ring-yellow-300'
-                : 'bg-[#FACC15] hover:bg-[#EAB308] text-zinc-950'
-            }`}
-          >
-            <ArrowDownWideNarrow className="w-3.5 h-3.5 stroke-[2.3]" />
-            <span>Sort for Rip Cuts (W ↓)</span>
           </button>
         </div>
 

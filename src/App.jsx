@@ -80,7 +80,7 @@ const INITIAL_INVENTORY = [
 
 export default function App() {
   // Interactive Carpenter Home / Splash Screen state
-  const [showHomeScreen, setShowHomeScreen] = useState(false)
+  const [showHomeScreen, setShowHomeScreen] = useState(true)
 
   // Light / Dark Mode Theme state with localStorage persistence
   const [theme, setTheme] = useState(() => {
@@ -127,7 +127,6 @@ export default function App() {
 
   // Cutting list state (trimmed down: starts empty until user selects/consolidates/adds/uploads)
   const [parts, setParts] = useState([])
-  const [hardwareItems, setHardwareItems] = useState([])
   const [selectedId, setSelectedId] = useState(null)
 
   // Inline edit state
@@ -198,11 +197,7 @@ export default function App() {
       }
 
       const rawParts = getRawSelectedParts(finalJobs, projects)
-      const activeId = !finalJobs.includes(jobId)
-        ? finalJobs[finalJobs.length - 1]
-        : jobId
       setParts(rawParts)
-      setHardwareItems(projects[activeId]?.hardwareItems || [])
       setIsConsolidated(false)
       setIsRipSorted(false)
       setAggregationStats(null)
@@ -429,11 +424,7 @@ export default function App() {
     triggerToast(`Created & selected ${shortLabel} from "${file.name}"`)
   }
 
-  const handleModelPartsExtracted = (
-    extractedParts,
-    _label = '',
-    extractedHardware = []
-  ) => {
+  const handleModelPartsExtracted = (extractedParts, _label = '') => {
     if (!Array.isArray(extractedParts) || extractedParts.length === 0) return
     const targetJobId = activeProjectId || selectedJobs[selectedJobs.length - 1] || 'Job #1'
     const tagged = extractedParts.map((p, idx) => {
@@ -443,6 +434,7 @@ export default function App() {
           : disambiguateCutlistPartName(p.part, idx)
       return {
         ...p,
+        isOrnament: Boolean(p.isOrnament),
         meshUuids: Array.isArray(p.meshUuids)
           ? p.meshUuids
           : p.meshUuid
@@ -459,13 +451,11 @@ export default function App() {
       }
     })
 
-    // Dynamically consolidate identical & near-identical panels (|H| <= 0.5mm, |L|,|W| <= 2.0mm)
+    // Dynamically consolidate identical & near-identical panels and ornaments
     const { parts: consolidatedParts, stats } = aggregateProjectCutlists(tagged, {
       requireStrictCorner: true,
       matchRoleFamily: true,
     })
-
-    const validHardware = Array.isArray(extractedHardware) ? extractedHardware : []
 
     setProjects((prev) => {
       const existingJob = prev[targetJobId]
@@ -475,12 +465,10 @@ export default function App() {
         [targetJobId]: {
           ...existingJob,
           parts: consolidatedParts,
-          hardwareItems: validHardware,
         },
       }
     })
     setParts(consolidatedParts)
-    setHardwareItems(validHardware)
     setIsConsolidated(stats.duplicateRowsEliminated > 0)
     setAggregationStats(stats)
     setSelectedId(consolidatedParts[0]?.id || null)
@@ -565,20 +553,7 @@ export default function App() {
   const handle3dSelectPart = (partId, partRow, rawHitData) => {
     if (partRow && partId != null) {
       setSelectedId(partId)
-      if (partRow.type === 'hardware' || partRow.isHardware) {
-        triggerToast(
-          `Selected ${partRow.part} (×${partRow.qty || 1}) from 3D model`
-        )
-      } else {
-        triggerToast(`Selected ${partRow.num} (${partRow.part}) from 3D model`)
-      }
-      return
-    }
-
-    if (rawHitData?.isHardware && hardwareItems.length > 0) {
-      const hwItem = hardwareItems[0]
-      setSelectedId(hwItem.id)
-      triggerToast(`Selected ${hwItem.part} (×${hwItem.qty || 1}) from 3D model`)
+      triggerToast(`Selected ${partRow.num} (${partRow.part}) from 3D model`)
       return
     }
 
@@ -626,14 +601,6 @@ export default function App() {
       setActiveProjectId(clickedRow.source_jobs[0])
     }
     setSelectedId((prev) => (prev === id ? null : id))
-  }
-
-  const handleSelectHardware = (hwItem) => {
-    if (!hwItem) return
-    setSelectedId((prev) => (prev === hwItem.id ? null : hwItem.id))
-    triggerToast(
-      `Highlighting ${hwItem.part} (×${hwItem.qty || 1}) in 3D viewer`
-    )
   }
 
   const startEditing = (e, item) => {
@@ -726,10 +693,7 @@ export default function App() {
   }
 
   const selectedPartIndex = parts.findIndex((p) => p.id === selectedId)
-  const selectedHardwareObj =
-    hardwareItems.find((hw) => hw.id === selectedId) || null
-  const selectedPartObj =
-    selectedPartIndex >= 0 ? parts[selectedPartIndex] : selectedHardwareObj
+  const selectedPartObj = selectedPartIndex >= 0 ? parts[selectedPartIndex] : null
   const totalPiecesCount = parts.reduce((acc, p) => acc + (Number(p.qty) || 1), 0)
 
   // Resolve the currently active project for per-project 3D viewport synchronization
@@ -768,12 +732,64 @@ export default function App() {
 
       {/* ============================================================
           THREE-COLUMN MAIN DASHBOARD
-          Left: ~25% | Center: ~50% | Right: ~25%
+          Left: ~25% (Inventory) | Center: ~50% (Cutting List) | Right: ~25% (Upload + Design)
          ============================================================ */}
       <div className="w-full max-w-[1680px] mx-auto px-4 lg:px-6 py-4 flex-1 flex flex-col">
         <main className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 items-stretch">
           {/* ------------------------------------------------------------
-              A. LEFT COLUMN (`UploadCard.jsx` + `CabinetWireframe.jsx`)
+              A. LEFT COLUMN (`InventoryPanel.jsx`)
+             ------------------------------------------------------------ */}
+          <section className="lg:col-span-3 flex flex-col">
+            <InventoryPanel
+              inventory={inventory}
+              unit={unit}
+              formatDim={formatDim}
+              newSheet={newSheet}
+              onSetNewSheet={setNewSheet}
+              onAddMaterial={handleAddMaterial}
+            />
+          </section>
+
+          {/* ------------------------------------------------------------
+              B. CENTER COLUMN (`CuttingListTable.jsx` + `ProjectTray.jsx`)
+             ------------------------------------------------------------ */}
+          <section className="lg:col-span-6 flex flex-col">
+            <CuttingListTable
+              parts={parts}
+              totalPiecesCount={totalPiecesCount}
+              unit={unit}
+              onSetUnit={setUnit}
+              selectedId={selectedId}
+              editingId={editingId}
+              editDraft={editDraft}
+              isRipSorted={isRipSorted}
+              formatDim={formatDim}
+              onRowClick={handleRowClick}
+              onStartEditing={startEditing}
+              onChangeEditDraft={setEditDraft}
+              onSaveEdit={saveEdit}
+              onCancelEdit={cancelEdit}
+              onDeleteRow={deleteRow}
+              onAddPart={handleAddPart}
+              onExportCsv={handleExportCsv}
+              onExportPdf={handleExportPdf}
+            >
+              <ProjectTray
+                projects={projects}
+                selectedJobs={selectedJobs}
+                onToggleJob={handleToggleJob}
+                onCreateProject={handleCreateProject}
+                isConsolidated={isConsolidated}
+                isRipSorted={isRipSorted}
+                aggregationStats={aggregationStats}
+                onConsolidateJobs={handleConsolidateJobs}
+                onSortForRipCuts={handleSortForRipCuts}
+              />
+            </CuttingListTable>
+          </section>
+
+          {/* ------------------------------------------------------------
+              C. RIGHT COLUMN (`UploadCard.jsx` + `CabinetWireframe.jsx`)
              ------------------------------------------------------------ */}
           <section className="lg:col-span-3 flex flex-col gap-4">
             <UploadCard
@@ -854,7 +870,6 @@ export default function App() {
                     selectedPartIndex={selectedPartIndex}
                     selectedPartName={selectedPartObj?.part || ''}
                     parts={parts}
-                    hardwareItems={hardwareItems}
                     presetType={activeProject?.presetType || 'kitchen'}
                     modelFile={activeProject?.modelFile || null}
                     modelUrl={activeProject?.modelUrl || null}
@@ -892,60 +907,6 @@ export default function App() {
                 </div>
               </div>
             </div>
-          </section>
-
-          {/* ------------------------------------------------------------
-              B. CENTER COLUMN (`CuttingListTable.jsx` + `ProjectTray.jsx`)
-             ------------------------------------------------------------ */}
-          <section className="lg:col-span-6 flex flex-col">
-            <CuttingListTable
-              parts={parts}
-              hardwareItems={hardwareItems}
-              totalPiecesCount={totalPiecesCount}
-              unit={unit}
-              onSetUnit={setUnit}
-              selectedId={selectedId}
-              editingId={editingId}
-              editDraft={editDraft}
-              isRipSorted={isRipSorted}
-              formatDim={formatDim}
-              onRowClick={handleRowClick}
-              onSelectHardware={handleSelectHardware}
-              onStartEditing={startEditing}
-              onChangeEditDraft={setEditDraft}
-              onSaveEdit={saveEdit}
-              onCancelEdit={cancelEdit}
-              onDeleteRow={deleteRow}
-              onAddPart={handleAddPart}
-              onExportCsv={handleExportCsv}
-              onExportPdf={handleExportPdf}
-            >
-              <ProjectTray
-                projects={projects}
-                selectedJobs={selectedJobs}
-                onToggleJob={handleToggleJob}
-                onCreateProject={handleCreateProject}
-                isConsolidated={isConsolidated}
-                isRipSorted={isRipSorted}
-                aggregationStats={aggregationStats}
-                onConsolidateJobs={handleConsolidateJobs}
-                onSortForRipCuts={handleSortForRipCuts}
-              />
-            </CuttingListTable>
-          </section>
-
-          {/* ------------------------------------------------------------
-              C. RIGHT COLUMN (`InventoryPanel.jsx`)
-             ------------------------------------------------------------ */}
-          <section className="lg:col-span-3 flex flex-col">
-            <InventoryPanel
-              inventory={inventory}
-              unit={unit}
-              formatDim={formatDim}
-              newSheet={newSheet}
-              onSetNewSheet={setNewSheet}
-              onAddMaterial={handleAddMaterial}
-            />
           </section>
         </main>
       </div>

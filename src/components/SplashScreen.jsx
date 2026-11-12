@@ -12,7 +12,6 @@ export default function CarpenterSplash({
   onEnterWorkshop,
   logoPath,
   preferCustomLogo = false,
-  partsCount = 13,
 }) {
   const [isExiting, setIsExiting] = useState(false)
 
@@ -458,22 +457,10 @@ export default function CarpenterSplash({
       </div>
 
       {/* ============================================================
-          TOP WORKSHOP TELEMETRY STRIP
-         ============================================================ */}
-      <div className="relative z-10 flex items-center gap-3 text-[11px] font-mono tracking-widest uppercase text-zinc-400 border border-zinc-800 bg-zinc-950/80 px-4 py-1.5 rounded-full">
-        <span className="w-2 h-2 rounded-full bg-[#FACC15] animate-pulse" />
-        <span className="text-zinc-200 font-semibold">ROME WORKSHOP OS v2.4</span>
-        <span className="text-zinc-700">|</span>
-        <span>{partsCount} PARTS QUEUED</span>
-        <span className="hidden sm:inline text-zinc-700">|</span>
-        <span className="hidden sm:inline text-[#FACC15]">CAD · CAM READY</span>
-      </div>
-
-      {/* ============================================================
           CENTERPIECE: ROME MODULAR SYSTEMS LOGO & TITLE
          ============================================================ */}
       <div className="relative z-10 flex flex-col items-center text-center max-w-2xl px-4 my-auto">
-        {/*Glowing frame around the ROME MODULAR SYSTEMS Logo */}
+        {/* Glowing frame around the ROME MODULAR SYSTEMS Logo */}
         <div className="p-2 md:p-3 rounded-2xl bg-zinc-950/90 border-2 border-[#FACC15]/80 shadow-[0_0_60px_-12px_rgba(250,204,21,0.35)] mb-7 transform hover:scale-[1.02] transition-transform duration-300">
           <RomeLogo
             logoPath={logoPath}

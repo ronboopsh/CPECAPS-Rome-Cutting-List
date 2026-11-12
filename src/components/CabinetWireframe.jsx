@@ -87,16 +87,89 @@ const PRESET_CONFIGS = {
 }
 
 /**
+ * Computes the tightest 3D minimum bounding box extents `[L, W, H]` (sorted descending: `L >= W >= H`)
+ * for an ornament or intricate mesh using vertex-level OBB angular sweep + tight `THREE.Box3` fallback.
+ */
+function computeMinimumBoundingBoxExtents(mesh, fallbackDx = 50, fallbackDy = 38, fallbackDz = 38) {
+  let bestDx = Math.max(1, fallbackDx)
+  let bestDy = Math.max(1, fallbackDy)
+  let bestDz = Math.max(1, fallbackDz)
+  let minVolume = bestDx * bestDy * bestDz
+
+  const posAttr = mesh?.geometry?.attributes?.position
+  if (posAttr && posAttr.count >= 3 && posAttr.count <= 20000) {
+    const count = posAttr.count
+    // Sample up to 600 vertices for fast OBB orientation search
+    const step = Math.max(1, Math.floor(count / 600))
+    const angles = [0, 15, 30, 45, 60, 75]
+
+    for (const deg of angles) {
+      const rad = (deg * Math.PI) / 180
+      const cos = Math.cos(rad)
+      const sin = Math.sin(rad)
+
+      let minX = Infinity, maxX = -Infinity
+      let minY = Infinity, maxY = -Infinity
+      let minZ = Infinity, maxZ = -Infinity
+
+      for (let i = 0; i < count; i += step) {
+        const x = posAttr.getX(i)
+        const y = posAttr.getY(i)
+        const z = posAttr.getZ(i)
+        // Rotate in XZ horizontal plane
+        const rx = x * cos - z * sin
+        const rz = x * sin + z * cos
+        if (rx < minX) minX = rx
+        if (rx > maxX) maxX = rx
+        if (y < minY) minY = y
+        if (y > maxY) maxY = y
+        if (rz < minZ) minZ = rz
+        if (rz > maxZ) maxZ = rz
+      }
+
+      const dx = Math.max(1, maxX - minX)
+      const dy = Math.max(1, maxY - minY)
+      const dz = Math.max(1, maxZ - minZ)
+      const vol = dx * dy * dz
+      if (vol < minVolume) {
+        minVolume = vol
+        bestDx = dx
+        bestDy = dy
+        bestDz = dz
+      }
+    }
+  } else if (mesh) {
+    const tightBox = new THREE.Box3().setFromObject(mesh)
+    if (!tightBox.isEmpty()) {
+      const sz = tightBox.getSize(new THREE.Vector3())
+      bestDx = Math.max(1, sz.x)
+      bestDy = Math.max(1, sz.y)
+      bestDz = Math.max(1, sz.z)
+    }
+  }
+
+  return [bestDx, bestDy, bestDz]
+    .map((v) => Math.max(1, Math.round(v)))
+    .sort((a, b) => b - a)
+}
+
+/**
  * Matches a 3D mesh's metadata with the active row in the Cutting List table.
  */
-function doesMeshMatchSelectedPart(meshUserData, selectedPart, selectedPartName, selectedPartIndex, meshUuid = null) {
+function doesMeshMatchSelectedPart(
+  meshUserData,
+  selectedPart,
+  selectedPartName,
+  selectedPartIndex,
+  meshUuid = null
+) {
   if (!selectedPart && !selectedPartName && (selectedPartIndex == null || selectedPartIndex < 0)) {
     return false
   }
 
   const effectiveUuid = meshUserData.meshUuid || meshUserData.key || meshUuid || null
 
-  // 1. Multi-Mesh Selection Sync via `selectedPart.meshUuids` (highlights all consolidated meshes simultaneously)
+  // 1. Multi-Mesh Selection Sync via `selectedPart.meshUuids` (highlights all consolidated panel or ornament meshes simultaneously)
   if (
     effectiveUuid &&
     Array.isArray(selectedPart?.meshUuids) &&
@@ -123,26 +196,22 @@ function doesMeshMatchSelectedPart(meshUserData, selectedPart, selectedPartName,
     return selectedPart.panelIndices.includes(meshUserData.panelIndex)
   }
 
-  // 3. Direct unique part ID match (for single-mesh extracted 3D CAD parts or hardware groups)
+  // 3. Direct unique part ID match (for single-mesh extracted 3D CAD parts or ornaments)
   if (selectedPart?.id != null && meshUserData.partId != null) {
     if (meshUserData.partId === selectedPart.id) return true
     if (
       (String(selectedPart.id).startsWith('cad-') ||
-        String(selectedPart.id).startsWith('hw-')) &&
+        String(selectedPart.id).startsWith('orn-')) &&
       !selectedPart?.consolidated
     ) {
       return false
     }
   }
 
-  // 3b. Hardware / Footing match
-  if (meshUserData.isHardware || meshUserData.type === 'hardware') {
-    if (selectedPart?.type === 'hardware' || selectedPart?.isHardware) {
-      return true
-    }
-    return false
-  }
-  if (selectedPart?.type === 'hardware' || selectedPart?.isHardware) {
+  // 3b. Ornament vs. standard sheet panel isolation
+  const isMeshOrnament = Boolean(meshUserData.isOrnament || meshUserData.isHardware)
+  const isTargetOrnament = Boolean(selectedPart?.isOrnament)
+  if (isMeshOrnament !== isTargetOrnament) {
     return false
   }
 
@@ -277,7 +346,6 @@ export default function CabinetWireframe({
   selectedPartIndex = null,
   selectedPartName = '',
   parts = [],
-  hardwareItems = [],
   presetType = 'kitchen',
   modelFile = null,
   modelUrl = null,
@@ -322,8 +390,6 @@ export default function CabinetWireframe({
 
   const partsRef = useRef(parts)
   partsRef.current = parts
-  const hardwareItemsRef = useRef(hardwareItems)
-  hardwareItemsRef.current = hardwareItems
   const selectedPartRef = useRef(selectedPart)
   selectedPartRef.current = selectedPart
   const selectedPartIndexRef = useRef(selectedPartIndex)
@@ -467,10 +533,13 @@ export default function CabinetWireframe({
     })
 
     // Enforce strict Highlight-to-Quantity parity (`highlightedCount <= activePart.qty`)
-    const maxExpectedHighlights =
-      activePart && !activePart.isHardware && activePart.type !== 'hardware'
-        ? Math.max(1, Number(activePart.qty) || 1)
-        : Infinity
+    const maxExpectedHighlights = activePart
+      ? Math.max(
+          1,
+          Number(activePart.qty) || 1,
+          Array.isArray(activePart.meshUuids) ? activePart.meshUuids.length : 1
+        )
+      : Infinity
     let highlightedSoFar = 0
     for (let i = 0; i < matchFlags.length; i++) {
       if (matchFlags[i]) {
@@ -747,16 +816,12 @@ export default function CabinetWireframe({
       meshListRef.current.push(child)
     })
 
-    // 3. Preserve cabinet feet / hardware in the 3D scene with wireframe outlines & consolidate into bottom spec note
-    const extractedHardwareItems = []
+    // 3. Include ornament / intricate parts (cabinet feet, legs, non-sheet components) directly in the main Cutting List with `isOrnament: true` and minimum bounding box dimensions
     if (classifiedHardware.length > 0) {
-      const hwGroupId = `hw-${timestamp}-footing`
-      const hwMeshUuids = []
-      const hwDimsList = []
-
       classifiedHardware.forEach((hwRec, hwIdx) => {
         const hwMesh = hwRec.mesh
         const assignedRole = hwRec.role || 'Cabinet Foot / Leg'
+        const combinedIdx = classifiedPanels.length + hwIdx
 
         hwMesh.material = new THREE.MeshStandardMaterial({
           color: 0xf3f4f6,
@@ -778,58 +843,59 @@ export default function CabinetWireframe({
         edgeLines.userData = { isEdgeOutline: true }
         hwMesh.add(edgeLines)
 
-        const sortedDims = [hwRec.dx, hwRec.dy, hwRec.dz]
-          .map((v) => Math.max(1, Math.round(v)))
-          .sort((a, b) => b - a)
+        // Compute tightest 3D minimum bounding box extents (sorted descending: L >= W >= H)
+        const sortedDims = computeMinimumBoundingBoxExtents(
+          hwMesh,
+          hwRec.dx,
+          hwRec.dy,
+          hwRec.dz
+        )
 
-        hwDimsList.push(sortedDims)
-        hwMeshUuids.push(hwMesh.uuid)
+        const generatedOrnamentId = `orn-${timestamp}-${hwIdx}`
 
         hwMesh.name = assignedRole
         hwMesh.userData = {
           ...hwMesh.userData,
-          key: `cad-hw-${hwIdx}`,
+          key: `cad-orn-${hwIdx}`,
           meshUuid: hwMesh.uuid,
-          isHardware: true,
-          type: 'hardware',
-          category: 'footing',
+          isOrnament: true,
+          isHardware: false,
+          category: 'ornament',
           panelRole: assignedRole,
           partName: assignedRole,
-          partId: hwGroupId,
+          panelIndex: combinedIdx,
+          partIndex: combinedIdx,
+          partId: generatedOrnamentId,
           basePosition: hwMesh.position.clone(),
           explodeDir: hwRec.explodeDir.clone(),
           displayDims: `${sortedDims[0]} × ${sortedDims[1]} × ${sortedDims[2]} mm`,
         }
 
-        meshListRef.current.push(hwMesh)
-      })
+        extractedCutlistParts.push({
+          id: generatedOrnamentId,
+          meshUuid: hwMesh.uuid,
+          meshUuids: [hwMesh.uuid],
+          panelIndex: combinedIdx,
+          panelIndices: [combinedIdx],
+          partIndex: combinedIdx,
+          num: `#${combinedIdx + 1}`,
+          part: assignedRole,
+          panelRole: assignedRole,
+          isOrnament: true,
+          qty: 1,
+          l: sortedDims[0],
+          w: sortedDims[1],
+          h: sortedDims[2],
+          corner: 'Custom',
+          material: 'Solid Wood / Custom',
+        })
 
-      const repDims = hwDimsList[0] || [53, 38, 38]
-      extractedHardwareItems.push({
-        id: hwGroupId,
-        num: 'HW',
-        type: 'hardware',
-        isHardware: true,
-        category: 'footing',
-        title: 'Hardware / Leg Assemblies (Non-Sheet Stock)',
-        part: 'Cabinet Foot / Leg',
-        panelRole: 'Cabinet Foot / Leg',
-        qty: classifiedHardware.length,
-        l: repDims[0],
-        w: repDims[1],
-        h: repDims[2],
-        remarks: 'Solid hardware component — excluded from 18mm sheet cutlist',
-        meshUuids: hwMeshUuids,
-        consolidated: classifiedHardware.length > 1,
+        meshListRef.current.push(hwMesh)
       })
     }
 
     if (typeof onModelPartsExtractedRef.current === 'function') {
-      onModelPartsExtractedRef.current(
-        extractedCutlistParts,
-        label,
-        extractedHardwareItems
-      )
+      onModelPartsExtractedRef.current(extractedCutlistParts, label)
     }
 
     group.add(loadedObject)
@@ -961,27 +1027,9 @@ export default function CabinetWireframe({
         const hitUuid = hitMesh.uuid
         const hitData = hitMesh.userData
         const currentParts = partsRef.current || []
-        const currentHardware = hardwareItemsRef.current || []
-
-        // 0. Check if clicked mesh is a Cabinet Foot / Hardware component
-        if (hitData.isHardware || hitData.type === 'hardware') {
-          const matchedHw =
-            currentHardware.find(
-              (hw) =>
-                (Array.isArray(hw.meshUuids) && hw.meshUuids.includes(hitUuid)) ||
-                hw.id === hitData.partId ||
-                hw.type === 'hardware'
-            ) || null
-          if (matchedHw) {
-            onSelectPartRef.current(matchedHw.id, matchedHw, hitData)
-            return
-          }
-          onSelectPartRef.current(hitData.partId || 'hw-footing', null, hitData)
-          return
-        }
 
         let matchedRow = null
-        // 1. Map clicked mesh's UUID back to the consolidated or individual part record (`meshUuids`)
+        // 1. Map clicked mesh's UUID back to the consolidated or individual part/ornament record (`meshUuids`)
         if (hitUuid) {
           matchedRow = currentParts.find(
             (p) =>
@@ -1002,7 +1050,7 @@ export default function CabinetWireframe({
               p.panelIndex === hitData.panelIndex
           )
         }
-        // 4. Match by classified panelRole / partName
+        // 4. Match by classified panelRole / partName / ornament flag
         if (!matchedRow) {
           matchedRow = currentParts.find((p) =>
             doesMeshMatchSelectedPart(hitData, p, p.part, null, hitUuid)
@@ -1275,15 +1323,13 @@ export default function CabinetWireframe({
           <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#FACC15]">
             {hoveredPanel
               ? 'Inspecting 3D Panel'
-              : selectedPart?.type === 'hardware' || selectedPart?.isHardware
-              ? 'Selected Hardware / Fitting'
+              : selectedPart?.isOrnament
+              ? 'Selected Ornament'
               : 'Selected Cut Plane'}
           </div>
           <div className="font-bold text-white truncate">
             {hoveredPanel
               ? hoveredPanel.partName
-              : selectedPart?.type === 'hardware' || selectedPart?.isHardware
-              ? `${selectedLabel} (×${selectedPart.qty || 1})`
               : `${selectedPart.num || ''} ${selectedLabel}`}
           </div>
           <div className="text-[10.5px] text-zinc-300 font-mono">

@@ -84,18 +84,26 @@ function normalizeRowForExport(item) {
   const length = Number(item.l ?? item.length) || 0
   const width = Number(item.w ?? item.width) || 0
   const thickness = Number(item.h ?? item.thickness) || 0
-  const material = String(item.material || '18mm Marine Plywood')
+  const material = String(
+    item.material ||
+      (item.isOrnament ? 'Solid Wood / Custom' : '18mm Marine Plywood')
+  )
   const jobs =
     Array.isArray(item.source_jobs) && item.source_jobs.length > 0
       ? item.source_jobs.join(' + ')
       : item.project_id || ''
-  const corner = item.corner || item.corner_cut || 'None'
-  const remarks =
+  const corner = item.corner || item.corner_cut || (item.isOrnament ? 'Custom' : 'None')
+  const baseRemarks =
     item.remarks ||
     [corner !== 'None' ? `Corner: ${corner}` : '', jobs ? `Jobs: ${jobs}` : '']
       .filter(Boolean)
       .join(' | ') ||
     'Standard Cut'
+  const remarks = item.isOrnament
+    ? baseRemarks.includes('[ORNAMENT]')
+      ? baseRemarks
+      : `[ORNAMENT] ${baseRemarks}`
+    : baseRemarks
 
   return {
     partName,

@@ -1,7 +1,18 @@
-import React from 'react'
+import React, { useState, useMemo } from 'react'
 import { Plus, Pencil, Trash2, Check, X, Printer, FileDown } from 'lucide-react'
 import { MEASUREMENT_UNITS, normalizeUnitCode } from '../utils/exporter'
 import { disambiguateCutlistPartName, isAmbiguousCadName } from '../utils/panelClassifier'
+
+const SORTABLE_COLUMNS = [
+  { key: 'num', label: '#', type: 'numeric', className: 'py-2.5 pl-2.5 pr-1.5 w-11' },
+  { key: 'part', label: 'PART & SOURCE JOBS', type: 'alpha', className: 'py-2.5 px-2' },
+  { key: 'qty', label: 'QTY', type: 'numeric', className: 'py-2.5 px-1.5 w-14 text-center' },
+  { key: 'l', label: 'L', type: 'numeric', className: 'py-2.5 px-1.5 w-14' },
+  { key: 'w', label: 'W', type: 'numeric', className: 'py-2.5 px-1.5 w-14' },
+  { key: 'h', label: 'H', type: 'numeric', className: 'py-2.5 px-1.5 w-12' },
+  { key: 'corner', label: 'CORNER', type: 'alpha', className: 'py-2.5 px-2' },
+  { key: 'material', label: 'MATERIAL', type: 'alpha', className: 'py-2.5 px-2' },
+]
 
 /**
  * Master Interactive Cutting List Table (`src/components/CuttingListTable.jsx`)
@@ -9,7 +20,6 @@ import { disambiguateCutlistPartName, isAmbiguousCadName } from '../utils/panelC
  */
 export default function CuttingListTable({
   parts,
-  hardwareItems = [],
   totalPiecesCount,
   unit,
   onSetUnit,
@@ -19,7 +29,6 @@ export default function CuttingListTable({
   isRipSorted,
   formatDim,
   onRowClick,
-  onSelectHardware,
   onStartEditing,
   onChangeEditDraft,
   onSaveEdit,
@@ -31,6 +40,102 @@ export default function CuttingListTable({
   children,
 }) {
   const activeUnit = normalizeUnitCode(unit)
+  // Default to Width descending ('w' ↓) on initial load to preserve rip-cut sorting behavior
+  const [sortConfig, setSortConfig] = useState({ key: 'w', direction: 'desc' })
+
+  const handleHeaderSort = (columnKey) => {
+    setSortConfig((prev) => {
+      if (prev.key === columnKey) {
+        return {
+          key: columnKey,
+          direction: prev.direction === 'asc' ? 'desc' : 'asc',
+        }
+      }
+      // Numeric columns default to descending for dimensions/qty, '#' defaults to ascending
+      const defaultDir =
+        columnKey === 'l' || columnKey === 'w' || columnKey === 'h' || columnKey === 'qty'
+          ? 'desc'
+          : 'asc'
+      return { key: columnKey, direction: defaultDir }
+    })
+  }
+
+  const sortedParts = useMemo(() => {
+    if (!Array.isArray(parts) || parts.length === 0) return []
+    const indexed = parts.map((row, originalIdx) => {
+      const displayPartName =
+        row.panelRole && isAmbiguousCadName(row.part)
+          ? row.panelRole
+          : disambiguateCutlistPartName(row.part, originalIdx)
+      const parsedNum =
+        parseInt(String(row.num ?? '').replace(/[^0-9]/g, ''), 10) || originalIdx + 1
+      const cornerLabel = String(
+        row.corner || (row.isOrnament ? 'Custom' : 'None')
+      ).trim()
+      const materialLabel = String(
+        row.material || (row.isOrnament ? 'Solid Wood / Custom' : '18mm Marine Plywood')
+      ).trim()
+      return {
+        row,
+        originalIdx,
+        displayPartName,
+        parsedNum,
+        cornerLabel,
+        materialLabel,
+      }
+    })
+
+    const { key, direction } = sortConfig
+    const dirMultiplier = direction === 'asc' ? 1 : -1
+
+    indexed.sort((a, b) => {
+      let cmp = 0
+      switch (key) {
+        case 'num':
+          cmp = a.parsedNum - b.parsedNum
+          break
+        case 'qty':
+          cmp = (Number(a.row.qty) || 1) - (Number(b.row.qty) || 1)
+          break
+        case 'l':
+          cmp = (Number(a.row.l) || 0) - (Number(b.row.l) || 0)
+          if (cmp === 0) cmp = (Number(a.row.w) || 0) - (Number(b.row.w) || 0)
+          break
+        case 'w':
+          cmp = (Number(a.row.w) || 0) - (Number(b.row.w) || 0)
+          if (cmp === 0) cmp = (Number(a.row.l) || 0) - (Number(b.row.l) || 0)
+          break
+        case 'h':
+          cmp = (Number(a.row.h) || 0) - (Number(b.row.h) || 0)
+          break
+        case 'part':
+          cmp = a.displayPartName.localeCompare(b.displayPartName, undefined, {
+            sensitivity: 'base',
+            numeric: true,
+          })
+          break
+        case 'corner':
+          cmp = a.cornerLabel.localeCompare(b.cornerLabel, undefined, {
+            sensitivity: 'base',
+            numeric: true,
+          })
+          break
+        case 'material':
+          cmp = a.materialLabel.localeCompare(b.materialLabel, undefined, {
+            sensitivity: 'base',
+            numeric: true,
+          })
+          break
+        default:
+          cmp = 0
+      }
+
+      if (cmp !== 0) return cmp * dirMultiplier
+      return a.originalIdx - b.originalIdx
+    })
+
+    return indexed
+  }, [parts, sortConfig])
 
   return (
     <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm p-4 flex flex-col flex-1 transition-colors">
@@ -104,26 +209,48 @@ export default function CuttingListTable({
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="border-b-2 border-zinc-200 dark:border-zinc-800 text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-              <th className="py-2.5 pl-2.5 pr-1.5 w-11">#</th>
-              <th className="py-2.5 px-2">PART &amp; SOURCE JOBS</th>
-              <th className="py-2.5 px-1.5 w-14 text-center">QTY</th>
-              <th className="py-2.5 px-1.5 w-14">L</th>
-              <th className="py-2.5 px-1.5 w-14">W ↓</th>
-              <th className="py-2.5 px-1.5 w-12">H</th>
-              <th className="py-2.5 px-2">CORNER</th>
-              <th className="py-2.5 px-2">MATERIAL</th>
-              <th className="py-2.5 pl-1 pr-2.5 text-right w-18">ACTIONS</th>
+              {SORTABLE_COLUMNS.map((col) => {
+                const isActiveSort = sortConfig.key === col.key
+                const arrowSymbol = sortConfig.direction === 'asc' ? '↑' : '↓'
+                return (
+                  <th
+                    key={col.key}
+                    scope="col"
+                    aria-sort={
+                      isActiveSort
+                        ? sortConfig.direction === 'asc'
+                          ? 'ascending'
+                          : 'descending'
+                        : 'none'
+                    }
+                    onClick={() => handleHeaderSort(col.key)}
+                    className={`${col.className} cursor-pointer select-none rounded-t-md transition-colors hover:bg-zinc-100/80 dark:hover:bg-zinc-800/80 hover:text-zinc-900 dark:hover:text-[#FACC15] ${
+                      isActiveSort
+                        ? 'text-zinc-900 dark:text-[#FACC15]'
+                        : ''
+                    }`}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      <span>{col.label}</span>
+                      {isActiveSort && (
+                        <span className="text-zinc-900 dark:text-[#FACC15] font-extrabold">
+                          {arrowSymbol}
+                        </span>
+                      )}
+                    </span>
+                  </th>
+                )
+              })}
+              <th className="py-2.5 pl-1 pr-2.5 text-right w-18 select-none">
+                ACTIONS
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-zinc-800 text-[13px]">
-            {parts.map((row, rowIdx) => {
+            {sortedParts.map(({ row, displayPartName }) => {
               const isSelected = row.id === selectedId
               const isEditing = row.id === editingId
               const qtyVal = Number(row.qty) || 1
-              const displayPartName =
-                row.panelRole && isAmbiguousCadName(row.part)
-                  ? row.panelRole
-                  : disambiguateCutlistPartName(row.part, rowIdx)
               const sourceJobs =
                 Array.isArray(row.source_jobs) && row.source_jobs.length > 0
                   ? row.source_jobs
@@ -171,6 +298,11 @@ export default function CuttingListTable({
                     ) : (
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span>{displayPartName}</span>
+                        {row.isOrnament && (
+                          <span className="bg-amber-400/20 text-amber-800 dark:text-amber-300 border border-amber-500/50 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded">
+                            ORNAMENT
+                          </span>
+                        )}
                         {isMultiJob && (
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-[#FACC15] text-zinc-950 border border-[#EAB308]">
                             MERGED ×{qtyVal}
@@ -291,6 +423,7 @@ export default function CuttingListTable({
                         <option value="None">None</option>
                         <option value="Edge 1x">Edge 1x</option>
                         <option value="Edge 2x">Edge 2x</option>
+                        <option value="Custom">Custom</option>
                       </select>
                     ) : (
                       <span
@@ -300,7 +433,7 @@ export default function CuttingListTable({
                             : 'text-zinc-800 dark:text-zinc-200 font-medium'
                         }
                       >
-                        {row.corner}
+                        {row.corner || (row.isOrnament ? 'Custom' : 'None')}
                       </span>
                     )}
                   </td>
@@ -325,9 +458,13 @@ export default function CuttingListTable({
                         <option value="MDF">MDF</option>
                         <option value="Plywood">Plywood</option>
                         <option value="Oak Veneer">Oak Veneer</option>
+                        <option value="Solid Wood / Custom">
+                          Solid Wood / Custom
+                        </option>
                       </select>
                     ) : (
-                      row.material
+                      row.material ||
+                      (row.isOrnament ? 'Solid Wood / Custom' : '18mm Marine Plywood')
                     )}
                   </td>
 
@@ -379,68 +516,6 @@ export default function CuttingListTable({
           </tbody>
         </table>
       </div>
-
-      {/* Bottom "Hardware & Fittings" Specification Note (Non-Sheet Stock Callout) */}
-      {Array.isArray(hardwareItems) && hardwareItems.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-zinc-800 flex flex-col gap-2">
-          {hardwareItems.map((hw) => {
-            const isHwSelected = selectedId === hw.id
-            const qtyCount = Number(hw.qty) || 1
-            return (
-              <div
-                key={hw.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => onSelectHardware?.(hw)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    onSelectHardware?.(hw)
-                  }
-                }}
-                className={`rounded-xl border-l-4 border-l-[#FACC15] border transition-all cursor-pointer px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-3 ${
-                  isHwSelected
-                    ? 'bg-zinc-900 dark:bg-zinc-950 border-[#FACC15] ring-1 ring-[#FACC15] shadow-md'
-                    : 'bg-zinc-900/95 dark:bg-zinc-950/90 border-zinc-800 hover:border-[#FACC15]/70'
-                }`}
-              >
-                <div className="flex flex-col gap-0.5">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-[#FACC15] text-zinc-950 uppercase tracking-wider">
-                      Hardware &amp; Fittings
-                    </span>
-                    <span className="text-xs font-bold text-zinc-100">
-                      {hw.title || 'Hardware / Leg Assemblies (Non-Sheet Stock)'}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 mt-0.5 text-xs">
-                    <span className="font-bold text-[#FACC15]">
-                      {hw.part || 'Cabinet Foot / Leg'} (×{qtyCount})
-                    </span>
-                    <span className="text-zinc-500">·</span>
-                    <span className="font-mono font-semibold text-zinc-200">
-                      {formatDim(hw.l)} {activeUnit} × {formatDim(hw.w)} {activeUnit} ×{' '}
-                      {formatDim(hw.h)} {activeUnit}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex flex-col sm:items-end gap-0.5">
-                  <span className="text-[11px] font-medium text-zinc-400">
-                    {hw.remarks ||
-                      'Solid hardware component — excluded from 18mm sheet cutlist'}
-                  </span>
-                  <span className="text-[10px] font-bold text-[#FACC15]">
-                    {isHwSelected
-                      ? 'Highlighting all 4 feet in 3D view'
-                      : 'Click to highlight feet in 3D view'}
-                  </span>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
     </div>
   )
 }

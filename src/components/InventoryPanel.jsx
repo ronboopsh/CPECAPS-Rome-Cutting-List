@@ -21,7 +21,7 @@ export default function InventoryPanel({
   const nextInventoryIndex = inventory.length + 1
 
   return (
-    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm p-4 flex flex-col justify-between flex-1 transition-colors">
+    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm p-4 flex flex-col justify-between flex-1 h-full transition-colors">
       <div>
         {/* Card Header */}
         <div className="flex items-center justify-between mb-3 px-1">

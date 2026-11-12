@@ -34,7 +34,11 @@ export default function Header({
               <button
                 key={item.label}
                 type="button"
-                onClick={() => onNavClick(item.label)}
+                onClick={() =>
+                  item.label === 'Home' && onOpenSplash
+                    ? onOpenSplash()
+                    : onNavClick(item.label)
+                }
                 className="px-2.5 py-1 rounded text-zinc-200 hover:text-[#FACC15] hover:bg-zinc-800/80 font-medium transition-colors flex items-center gap-1.5"
               >
                 {item.label === 'Home' && (
@@ -109,14 +113,18 @@ export default function Header({
                 className="h-12 w-auto"
               />
             </button>
-            <div className="flex items-baseline gap-2.5">
+            <button
+              type="button"
+              onClick={onOpenSplash}
+              className="flex items-baseline gap-2.5 text-left cursor-pointer focus:outline-none"
+            >
               <h1 className="text-2xl font-extrabold tracking-tight text-zinc-950 dark:text-zinc-100 uppercase transition-colors">
                 Rome{' '}
                 <span className="bg-[#FACC15] px-2 py-0.5 rounded text-zinc-950">
                   Cabinets
                 </span>
               </h1>
-            </div>
+            </button>
           </div>
 
           {/* Right Side: Minimal "help" link */}

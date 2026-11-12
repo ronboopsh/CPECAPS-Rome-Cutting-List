@@ -314,6 +314,7 @@ export function getPartIdentityKey(part) {
 
 export function getPartRoleFamily(part) {
   const raw = String(part?.panelRole || part?.part || '').trim().toLowerCase()
+  if (part?.isOrnament) return raw ? `ornament::${raw}` : 'ornament'
   if (!raw) return 'panel'
   if (raw.includes('stretcher') || raw.includes('rail') || raw.includes('valance')) {
     return 'stretcher'
@@ -344,15 +345,21 @@ export function arePartsNearIdentical(partA, partB, options = {}) {
   const requireStrictCorner = options.requireStrictCorner ?? true
   const matchRoleFamily = options.matchRoleFamily ?? false
 
+  // Never merge an ornament part with a standard flat sheet panel
+  const isOrnA = Boolean(partA.isOrnament)
+  const isOrnB = Boolean(partB.isOrnament)
+  if (isOrnA !== isOrnB) return false
+
   // 1. Material Match (case-insensitive)
   const matA = String(partA.material || '18mm Marine Plywood').trim().toLowerCase()
   const matB = String(partB.material || '18mm Marine Plywood').trim().toLowerCase()
   if (matA !== matB) return false
 
-  // 2. Thickness (H) Match within 0.5 mm
+  // 2. Thickness (H) Match within 0.5 mm (or 2.0 mm for 3D ornaments)
   const hA = Number(partA.h) || 0
   const hB = Number(partB.h) || 0
-  if (Math.abs(hA - hB) > 0.5) return false
+  const hTol = isOrnA ? 2.0 : 0.5
+  if (Math.abs(hA - hB) > hTol) return false
 
   // 3. Length (L) & Width (W) Tolerance within 2.0 mm (including transposed orientation)
   const lA = Number(partA.l) || 0
@@ -438,6 +445,7 @@ export function getRawSelectedParts(selectedJobIds = ['Job #1', 'Job #2'], sched
         id: part.id || idx * 1000,
         num: `#${idx}`,
         qty: Number(part.qty) || 1,
+        isOrnament: Boolean(part.isOrnament),
         meshUuids: existingUuids,
         source_jobs: Array.isArray(part.source_jobs) && part.source_jobs.length > 0
           ? [...part.source_jobs]
@@ -514,6 +522,7 @@ export function aggregateProjectCutlists(partsList = [], options = {}) {
         w: normW,
         h: normH,
         qty: itemQty,
+        isOrnament: Boolean(item.isOrnament),
         mergedCount: 1,
         source_jobs: Array.from(new Set(itemJobs)),
         partNames: [item.part || item.panelRole || 'Cabinet Panel'],
@@ -523,6 +532,7 @@ export function aggregateProjectCutlists(partsList = [], options = {}) {
     } else {
       matchedGroup.qty += itemQty
       matchedGroup.mergedCount += 1
+      matchedGroup.isOrnament = Boolean(matchedGroup.isOrnament || item.isOrnament)
       matchedGroup.l = Math.max(matchedGroup.l, normL)
       matchedGroup.w = Math.max(matchedGroup.w, normW)
       matchedGroup.h = Math.max(matchedGroup.h, normH)
@@ -564,6 +574,7 @@ export function aggregateProjectCutlists(partsList = [], options = {}) {
       part: unifiedName,
       panelRole: unifiedName,
       qty: syncedQty,
+      isOrnament: Boolean(entry.isOrnament),
       meshUuids,
       panelIndices: entry.panelIndices || [],
       consolidated: isConsolidated,
