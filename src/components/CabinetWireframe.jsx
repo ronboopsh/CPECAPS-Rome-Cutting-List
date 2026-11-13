@@ -8,6 +8,7 @@ import { formatDimensionByUnit, normalizeUnitCode } from '../utils/exporter'
 import {
   classifyCabinetPanels,
   normalizeLoadedCabinetModel,
+  computeTightOBBDimensions,
   isAmbiguousCadName,
 } from '../utils/panelClassifier'
 
@@ -88,68 +89,20 @@ const PRESET_CONFIGS = {
 
 /**
  * Computes the tightest 3D minimum bounding box extents `[L, W, H]` (sorted descending: `L >= W >= H`)
- * for an ornament or intricate mesh using vertex-level OBB angular sweep + tight `THREE.Box3` fallback.
+ * for an ornament or panel mesh using local unrotated dimensions + 3D OBB angular sweep.
  */
 function computeMinimumBoundingBoxExtents(mesh, fallbackDx = 50, fallbackDy = 38, fallbackDz = 38) {
-  let bestDx = Math.max(1, fallbackDx)
-  let bestDy = Math.max(1, fallbackDy)
-  let bestDz = Math.max(1, fallbackDz)
-  let minVolume = bestDx * bestDy * bestDz
-
-  const posAttr = mesh?.geometry?.attributes?.position
-  if (posAttr && posAttr.count >= 3 && posAttr.count <= 20000) {
-    const count = posAttr.count
-    // Sample up to 600 vertices for fast OBB orientation search
-    const step = Math.max(1, Math.floor(count / 600))
-    const angles = [0, 15, 30, 45, 60, 75]
-
-    for (const deg of angles) {
-      const rad = (deg * Math.PI) / 180
-      const cos = Math.cos(rad)
-      const sin = Math.sin(rad)
-
-      let minX = Infinity, maxX = -Infinity
-      let minY = Infinity, maxY = -Infinity
-      let minZ = Infinity, maxZ = -Infinity
-
-      for (let i = 0; i < count; i += step) {
-        const x = posAttr.getX(i)
-        const y = posAttr.getY(i)
-        const z = posAttr.getZ(i)
-        // Rotate in XZ horizontal plane
-        const rx = x * cos - z * sin
-        const rz = x * sin + z * cos
-        if (rx < minX) minX = rx
-        if (rx > maxX) maxX = rx
-        if (y < minY) minY = y
-        if (y > maxY) maxY = y
-        if (rz < minZ) minZ = rz
-        if (rz > maxZ) maxZ = rz
-      }
-
-      const dx = Math.max(1, maxX - minX)
-      const dy = Math.max(1, maxY - minY)
-      const dz = Math.max(1, maxZ - minZ)
-      const vol = dx * dy * dz
-      if (vol < minVolume) {
-        minVolume = vol
-        bestDx = dx
-        bestDy = dy
-        bestDz = dz
-      }
-    }
-  } else if (mesh) {
-    const tightBox = new THREE.Box3().setFromObject(mesh)
-    if (!tightBox.isEmpty()) {
-      const sz = tightBox.getSize(new THREE.Vector3())
-      bestDx = Math.max(1, sz.x)
-      bestDy = Math.max(1, sz.y)
-      bestDz = Math.max(1, sz.z)
+  const localDims = mesh?.userData?.localDimensionsMm || null
+  if (mesh?.geometry) {
+    const obb = computeTightOBBDimensions(mesh.geometry, localDims)
+    if (obb && obb.l > 0 && obb.w > 0 && obb.h > 0) {
+      return [obb.l, obb.w, obb.h]
+        .map((v) => Math.max(2, Math.round(v)))
+        .sort((a, b) => b - a)
     }
   }
-
-  return [bestDx, bestDy, bestDz]
-    .map((v) => Math.max(1, Math.round(v)))
+  return [fallbackDx, fallbackDy, fallbackDz]
+    .map((v) => Math.max(2, Math.round(v)))
     .sort((a, b) => b - a)
 }
 
@@ -691,7 +644,7 @@ export default function CabinetWireframe({
       }
 
       // Anchor wireframe edge outline as child object of mesh so it displaces seamlessly
-      const edgesGeo = new THREE.EdgesGeometry(geometry)
+      const edgesGeo = new THREE.EdgesGeometry(geometry, 28)
       const edgesMat = new THREE.LineBasicMaterial({
         color: 0x9ca3af,
         transparent: true,
@@ -734,7 +687,7 @@ export default function CabinetWireframe({
       return
     }
 
-    // 2. Compute overall cabinet assembly bounding box & classify every discrete panel & hardware mesh
+    // 2. Compute overall cabinet assembly bounding box & classify every discrete panel & ornament mesh
     const assemblyBox = new THREE.Box3().setFromObject(loadedObject)
     const {
       panels: classifiedPanels,
@@ -751,6 +704,11 @@ export default function CabinetWireframe({
       const child = rec.mesh
       const assignedRole = rec.role
 
+      // Filter out any residual < 2mm zero-thickness cap
+      if (Math.min(rec.dx, rec.dy, rec.dz) < 2) {
+        return
+      }
+
       child.material = new THREE.MeshStandardMaterial({
         color: 0xf3f4f6,
         roughness: 0.4,
@@ -761,8 +719,8 @@ export default function CabinetWireframe({
         polygonOffsetUnits: 1,
       })
 
-      // Anchor wireframe EdgesGeometry / LineSegments as a child of each mesh so it displaces seamlessly
-      const edgesGeo = new THREE.EdgesGeometry(child.geometry, 15)
+      // Use a 28-degree dihedral angle threshold on EdgesGeometry to suppress coplanar triangulation diagonals
+      const edgesGeo = new THREE.EdgesGeometry(child.geometry, 28)
       const edgesMat = new THREE.LineBasicMaterial({
         color: 0x1f2937,
         transparent: true,
@@ -772,11 +730,18 @@ export default function CabinetWireframe({
       edgeLines.userData = { isEdgeOutline: true }
       child.add(edgeLines)
 
-      const sortedDims = [rec.dx, rec.dy, rec.dz]
-        .map((v) => Math.max(1, Math.round(v)))
-        .sort((a, b) => b - a)
+      const sortedDims = computeMinimumBoundingBoxExtents(
+        child,
+        rec.dx,
+        rec.dy,
+        rec.dz
+      )
 
       const generatedPartId = `cad-${timestamp}-${meshIdx}`
+      const subPanels =
+        Array.isArray(rec.subPanels) && rec.subPanels.length > 1
+          ? rec.subPanels
+          : null
 
       // Store assigned role in `mesh.userData.panelRole`, `mesh.name`, `meshUuid`, and unique panel index
       child.name = assignedRole
@@ -784,6 +749,7 @@ export default function CabinetWireframe({
         ...child.userData,
         key: `cad-mesh-${meshIdx}`,
         meshUuid: child.uuid,
+        isOrnament: false,
         panelRole: assignedRole,
         partName: assignedRole,
         category: assignedRole.toLowerCase(),
@@ -792,36 +758,78 @@ export default function CabinetWireframe({
         partId: generatedPartId,
         basePosition: child.position.clone(),
         explodeDir: rec.explodeDir.clone(),
-        displayDims: `${sortedDims[0]} × ${sortedDims[1]} × ${sortedDims[2]} mm`,
+        displayDims: subPanels
+          ? `${subPanels.map((s) => `${s.l} × ${s.w} × ${s.h}`).join(' + ')} mm`
+          : `${sortedDims[0]} × ${sortedDims[1]} × ${sortedDims[2]} mm`,
       }
 
-      extractedCutlistParts.push({
-        id: generatedPartId,
-        meshUuid: child.uuid,
-        meshUuids: [child.uuid],
-        panelIndex: meshIdx,
-        panelIndices: [meshIdx],
-        partIndex: meshIdx,
-        num: `#${meshIdx + 1}`,
-        part: assignedRole,
-        panelRole: assignedRole,
-        qty: 1,
-        l: sortedDims[0],
-        w: sortedDims[1],
-        h: sortedDims[2],
-        corner: 'Edge 1x',
-        material: '18mm Marine Plywood',
-      })
+      if (subPanels) {
+        // Subdivide L-shaped or stepped panels into their real constituent rectangular sub-panels
+        // for the Cutting List while linking all sub-panel rows to the L-shaped 3D mesh (`child.uuid`).
+        subPanels.forEach((sub, subIdx) => {
+          const rowIndex = extractedCutlistParts.length
+          extractedCutlistParts.push({
+            id: `${generatedPartId}-sub-${subIdx}`,
+            meshUuid: child.uuid,
+            meshUuids: [child.uuid],
+            panelIndex: meshIdx,
+            panelIndices: [meshIdx],
+            partIndex: rowIndex,
+            num: `#${rowIndex + 1}`,
+            part: assignedRole,
+            panelRole: assignedRole,
+            isOrnament: false,
+            qty: 1,
+            l: Math.max(2, Math.round(sub.l)),
+            w: Math.max(2, Math.round(sub.w)),
+            h: Math.max(2, Math.round(sub.h || sortedDims[2])),
+            corner: 'Edge 1x',
+            material: '18mm Marine Plywood',
+          })
+        })
+      } else {
+        const rowIndex = extractedCutlistParts.length
+        extractedCutlistParts.push({
+          id: generatedPartId,
+          meshUuid: child.uuid,
+          meshUuids: [child.uuid],
+          panelIndex: meshIdx,
+          panelIndices: [meshIdx],
+          partIndex: rowIndex,
+          num: `#${rowIndex + 1}`,
+          part: assignedRole,
+          panelRole: assignedRole,
+          isOrnament: false,
+          qty: 1,
+          l: sortedDims[0],
+          w: sortedDims[1],
+          h: sortedDims[2],
+          corner: 'Edge 1x',
+          material: '18mm Marine Plywood',
+        })
+      }
 
       meshListRef.current.push(child)
     })
 
-    // 3. Include ornament / intricate parts (cabinet feet, legs, non-sheet components) directly in the main Cutting List with `isOrnament: true` and minimum bounding box dimensions
+    // 3. Include curved ornaments (> 36 tris with curved normals) and small non-sheet components in the Cutting List
     if (classifiedHardware.length > 0) {
       classifiedHardware.forEach((hwRec, hwIdx) => {
         const hwMesh = hwRec.mesh
-        const assignedRole = hwRec.role || 'Cabinet Foot / Leg'
+        const assignedRole = hwRec.role || 'Ornamental Part'
+        const isOrnament = Boolean(hwRec.isOrnament)
         const combinedIdx = classifiedPanels.length + hwIdx
+
+        // Compute tightest 3D minimum bounding box extents (sorted descending: L >= W >= H)
+        const sortedDims = computeMinimumBoundingBoxExtents(
+          hwMesh,
+          hwRec.dx,
+          hwRec.dy,
+          hwRec.dz
+        )
+        if (sortedDims[2] < 2) {
+          return
+        }
 
         hwMesh.material = new THREE.MeshStandardMaterial({
           color: 0xf3f4f6,
@@ -833,7 +841,7 @@ export default function CabinetWireframe({
           polygonOffsetUnits: 1,
         })
 
-        const edgesGeo = new THREE.EdgesGeometry(hwMesh.geometry, 15)
+        const edgesGeo = new THREE.EdgesGeometry(hwMesh.geometry, 28)
         const edgesMat = new THREE.LineBasicMaterial({
           color: 0x1f2937,
           transparent: true,
@@ -843,24 +851,16 @@ export default function CabinetWireframe({
         edgeLines.userData = { isEdgeOutline: true }
         hwMesh.add(edgeLines)
 
-        // Compute tightest 3D minimum bounding box extents (sorted descending: L >= W >= H)
-        const sortedDims = computeMinimumBoundingBoxExtents(
-          hwMesh,
-          hwRec.dx,
-          hwRec.dy,
-          hwRec.dz
-        )
-
-        const generatedOrnamentId = `orn-${timestamp}-${hwIdx}`
+        const generatedOrnamentId = `${isOrnament ? 'orn' : 'cad'}-${timestamp}-${combinedIdx}`
 
         hwMesh.name = assignedRole
         hwMesh.userData = {
           ...hwMesh.userData,
           key: `cad-orn-${hwIdx}`,
           meshUuid: hwMesh.uuid,
-          isOrnament: true,
+          isOrnament,
           isHardware: false,
-          category: 'ornament',
+          category: isOrnament ? 'ornament' : assignedRole.toLowerCase(),
           panelRole: assignedRole,
           partName: assignedRole,
           panelIndex: combinedIdx,
@@ -881,13 +881,13 @@ export default function CabinetWireframe({
           num: `#${combinedIdx + 1}`,
           part: assignedRole,
           panelRole: assignedRole,
-          isOrnament: true,
+          isOrnament,
           qty: 1,
           l: sortedDims[0],
           w: sortedDims[1],
           h: sortedDims[2],
-          corner: 'Custom',
-          material: 'Solid Wood / Custom',
+          corner: isOrnament ? 'Custom' : 'None',
+          material: isOrnament ? 'Solid Wood / Custom' : '18mm Marine Plywood',
         })
 
         meshListRef.current.push(hwMesh)
@@ -919,7 +919,7 @@ export default function CabinetWireframe({
     const hwCount = classifiedHardware.length
     setModelStatus(
       hwCount > 0
-        ? `${label} (${panelCount} ${panelCount === 1 ? 'panel' : 'panels'} · ${hwCount} feet)`
+        ? `${label} (${panelCount} ${panelCount === 1 ? 'panel' : 'panels'} · ${hwCount} ${hwCount === 1 ? 'ornament' : 'ornaments'})`
         : `${label} (${panelCount} ${panelCount === 1 ? 'panel' : 'panels'})`
     )
   }

@@ -320,7 +320,9 @@ export function getPartRoleFamily(part) {
     return 'stretcher'
   }
   if (raw.includes('divider') || raw.includes('partition')) return 'divider'
-  if (raw.includes('drawer') && raw.includes('side')) return 'drawer_side'
+  if (raw.includes('drawer')) return raw.includes('side') ? 'drawer_side' : 'drawer_panel'
+  if (raw.includes('foot') || raw.includes('leg')) return 'foot'
+  if (raw.includes('rod') || raw.includes('pole')) return 'rod'
   if (raw.includes('side') || raw.includes('gable')) return 'side'
   if (raw.includes('top')) return 'top'
   if (raw.includes('bottom') || raw.includes('base shelf')) return 'bottom'
