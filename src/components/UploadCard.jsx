@@ -3,9 +3,9 @@ import { Upload, Camera, FileCode2, Sparkles } from 'lucide-react'
 
 /**
  * Dual-Mode Upload Card (`src/components/UploadCard.jsx`)
- * Supports:
- *   1. "Upload 3D CAD (.dae, .obj, .csv)" -> passes File via `onModelUpload(file)` / `onFileReceive(file)`
- *   2. "Scan Paper Cutlist (.png, .jpg)" with camera / drag-and-drop & sample OCR trigger.
+ * Compact left-sidebar intake widget supporting:
+ *   1. "3D CAD (.dae, .obj, .csv)" -> passes File via `onModelUpload(file)` / `onFileReceive(file)`
+ *   2. "OCR Cutlist (.png, .jpg)" with camera / drag-and-drop & sample OCR trigger.
  */
 export default function UploadCard({
   uploadMode,
@@ -48,33 +48,33 @@ export default function UploadCard({
   }
 
   return (
-    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm p-4 transition-colors">
-      {/* Dual Upload Tabs */}
-      <div className="grid grid-cols-2 gap-1.5 bg-zinc-900 dark:bg-zinc-950 p-1 rounded-xl mb-3 border border-transparent dark:border-zinc-800">
+    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm p-3.5 min-h-[246px] flex flex-col justify-between transition-colors">
+      {/* Compact Dual Upload Tabs */}
+      <div className="grid grid-cols-2 gap-1 bg-[#111827] dark:bg-[#0B0D11] p-1 rounded-xl mb-2.5 border border-zinc-800">
         <button
           type="button"
           onClick={() => onSetUploadMode('cad')}
-          className={`py-2 px-2 rounded-lg text-[11px] font-extrabold leading-tight flex flex-col items-center justify-center gap-1 transition-all ${
+          className={`py-1.5 px-1.5 rounded-lg text-[10.5px] font-extrabold leading-tight flex items-center justify-center gap-1.5 transition-all ${
             uploadMode === 'cad'
               ? 'bg-[#FACC15] text-zinc-950 shadow-xs'
               : 'text-zinc-300 hover:text-white'
           }`}
         >
-          <FileCode2 className="w-3.5 h-3.5" />
-          <span>Upload 3D CAD (.dae, .obj, .csv)</span>
+          <FileCode2 className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">3D CAD</span>
         </button>
 
         <button
           type="button"
           onClick={() => onSetUploadMode('ocr')}
-          className={`py-2 px-2 rounded-lg text-[11px] font-extrabold leading-tight flex flex-col items-center justify-center gap-1 transition-all ${
+          className={`py-1.5 px-1.5 rounded-lg text-[10.5px] font-extrabold leading-tight flex items-center justify-center gap-1.5 transition-all ${
             uploadMode === 'ocr'
               ? 'bg-[#FACC15] text-zinc-950 shadow-xs'
               : 'text-zinc-300 hover:text-white'
           }`}
         >
-          <Camera className="w-3.5 h-3.5" />
-          <span>Scan Paper Cutlist (.png, .jpg)</span>
+          <Camera className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">OCR Scan</span>
         </button>
       </div>
 
@@ -101,7 +101,7 @@ export default function UploadCard({
         }}
       />
 
-      {/* Dropzone Area */}
+      {/* Compact Dropzone Area */}
       <div
         onClick={() =>
           uploadMode === 'ocr'
@@ -114,44 +114,40 @@ export default function UploadCard({
         }}
         onDragLeave={() => onSetIsDragging(false)}
         onDrop={handleInternalDrop}
-        className={`group cursor-pointer rounded-xl border-2 border-dashed transition-all px-4 py-5 flex flex-col items-center justify-center text-center ${
+        className={`group cursor-pointer rounded-xl border-2 border-dashed transition-all px-3 py-5 flex-1 flex flex-col items-center justify-center text-center ${
           isDragging
             ? 'border-[#EAB308] bg-yellow-50/70 dark:bg-yellow-500/10'
             : 'border-zinc-300 dark:border-zinc-700 hover:border-[#FACC15] dark:hover:border-[#FACC15] hover:bg-yellow-50/30 dark:hover:bg-zinc-800/60'
         }`}
       >
-        <div className="w-11 h-11 rounded-full bg-zinc-900 dark:bg-zinc-800 group-hover:bg-[#FACC15] border border-zinc-800 dark:border-zinc-700 group-hover:border-[#EAB308] flex items-center justify-center mb-2.5 text-[#FACC15] group-hover:text-zinc-950 transition-colors shadow-xs">
+        <div className="w-9 h-9 rounded-full bg-[#111827] dark:bg-zinc-800 group-hover:bg-[#FACC15] border border-zinc-800 dark:border-zinc-700 group-hover:border-[#EAB308] flex items-center justify-center mb-1.5 text-[#FACC15] group-hover:text-zinc-950 transition-colors shadow-xs">
           {uploadMode === 'ocr' ? (
-            <Camera className="w-5 h-5 stroke-[2.2]" />
+            <Camera className="w-4 h-4 stroke-[2.2]" />
           ) : (
-            <Upload className="w-5 h-5 stroke-[2.2]" />
+            <Upload className="w-4 h-4 stroke-[2.2]" />
           )}
         </div>
-        <p className="text-[12.5px] font-extrabold tracking-wide text-zinc-900 dark:text-zinc-100 uppercase">
-          {uploadMode === 'ocr'
-            ? 'DROP PAPER CUTLIST PHOTO HERE'
-            : 'DROP 3D CAD FILES HERE'}
+        <p className="text-[11px] font-extrabold tracking-wide text-zinc-900 dark:text-zinc-100 uppercase">
+          {uploadMode === 'ocr' ? 'Drop Paper Cutlist Photo' : 'Drop 3D CAD Files'}
         </p>
-        <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
+        <p className="text-[10px] font-mono text-zinc-500 dark:text-zinc-400 mt-0.5 truncate max-w-full">
           {uploadedFile
             ? `Loaded: ${uploadedFile}`
             : uploadMode === 'ocr'
-            ? 'Drag & drop .png / .jpg or tap to capture via camera'
-            : 'Supports .dae, .obj, .csv, and SketchUp .skp'}
+            ? '.png, .jpg or camera capture'
+            : '.dae, .obj, .csv'}
         </p>
       </div>
 
-      {/* Quick OCR Demo Trigger Button for Immediate Inspection */}
-      <div className="mt-2.5 flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={onTriggerSampleOcr}
-          className="w-full py-2 px-3 rounded-xl bg-zinc-900 dark:bg-zinc-950 hover:bg-zinc-800 dark:hover:bg-zinc-800 border border-transparent dark:border-zinc-800 text-[#FACC15] text-[11.5px] font-bold flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>Open OCR Vision Review Modal (Sample Scan)</span>
-        </button>
-      </div>
+      {/* Quick OCR Sample Trigger */}
+      <button
+        type="button"
+        onClick={onTriggerSampleOcr}
+        className="mt-2 w-full py-1.5 px-2.5 rounded-xl bg-[#111827] dark:bg-zinc-950 hover:bg-zinc-800 dark:hover:bg-zinc-800 border border-zinc-800 text-[#FACC15] text-[10.5px] font-bold flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
+      >
+        <Sparkles className="w-3.5 h-3.5 shrink-0" />
+        <span className="truncate">Sample OCR Review Modal</span>
+      </button>
     </div>
   )
 }

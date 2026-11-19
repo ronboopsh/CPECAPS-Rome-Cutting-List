@@ -1,18 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react'
-import {
-  Box,
-  Search,
-  RefreshCw,
-  Maximize2,
-  Minimize2,
-} from 'lucide-react'
+import { Box, Minimize2 } from 'lucide-react'
 import Header from './components/Header'
 import SplashScreen from './components/SplashScreen'
 import UploadCard from './components/UploadCard'
 import CabinetWireframe from './components/CabinetWireframe'
 import CuttingListTable from './components/CuttingListTable'
-import ProjectTray from './components/ProjectTray'
-import InventoryPanel from './components/InventoryPanel'
+import ProjectSidebar from './components/ProjectSidebar'
+import PartBlueprintInspector from './components/PartBlueprintInspector'
 import OcrReviewModal, { DEFAULT_OCR_EXTRACTED_ROWS } from './components/OcrReviewModal'
 import {
   PROJECT_SCHEDULES,
@@ -23,7 +17,6 @@ import {
 import {
   formatDimensionByUnit,
   exportToExcelXml,
-  exportToCSV,
   exportToPDF,
 } from './utils/exporter'
 import {
@@ -41,42 +34,6 @@ export const LOGO_IMAGE_PATH = '/logo.png'
 export const PREFER_CUSTOM_LOGO_PNG = false
 
 const INITIAL_SELECTED_JOBS = ['Job #1', 'Job #2']
-
-const INITIAL_INVENTORY = [
-  {
-    id: 1,
-    num: '1',
-    l: 2440,
-    w: 1220,
-    h: 18,
-    material: '18mm Marine Plywood',
-    usedPercent: 82,
-    barColor: 'bg-[#FACC15]', // Bright Industrial Yellow fill
-    iconType: 'clipboard',
-  },
-  {
-    id: 2,
-    num: '2',
-    l: 2440,
-    w: 1220,
-    h: 18,
-    material: 'Plywood',
-    usedPercent: 78,
-    barColor: 'bg-[#F59E0B]', // Industrial Amber fill
-    iconType: 'layers',
-  },
-  {
-    id: 3,
-    num: '3',
-    l: 2440,
-    w: 1220,
-    h: 18,
-    material: 'MDF',
-    usedPercent: 76,
-    barColor: 'bg-[#CA8A04]', // Deep Gold fill
-    iconType: 'sheet',
-  },
-]
 
 export default function App() {
   // Interactive Carpenter Home / Splash Screen state
@@ -153,15 +110,6 @@ export default function App() {
   const [resetTrigger, setResetTrigger] = useState(0)
   const [isDesignExpanded, setIsDesignExpanded] = useState(false)
   const [isExploded, setIsExploded] = useState(false)
-
-  // Inventory stock state & new row (#4) draft inputs
-  const [inventory, setInventory] = useState(INITIAL_INVENTORY)
-  const [newSheet, setNewSheet] = useState({
-    l: '2440',
-    w: '1220',
-    h: '18',
-    material: '18mm Marine Plywood',
-  })
 
   // Status toast for top menu actions
   const [toastMessage, setToastMessage] = useState(null)
@@ -383,6 +331,7 @@ export default function App() {
       shortLabel,
       fullName: `${jobId}: ${baseName}`,
       client: file.name,
+      sourceType: 'cad',
       presetType: 'kitchen',
       modelFile: is3dMesh ? file : null,
       modelUrl: objectUrl,
@@ -504,6 +453,7 @@ export default function App() {
   }
 
   const handleCommitOcrParts = (verifiedOcrRows) => {
+    let firstAddedId = null
     setParts((prev) => {
       const startIndex = prev.length + 1
       const appended = verifiedOcrRows.map((row, idx) => ({
@@ -511,8 +461,12 @@ export default function App() {
         id: Date.now() + idx,
         num: `#${startIndex + idx}`,
       }))
+      firstAddedId = appended[0]?.id ?? null
       return [...prev, ...appended]
     })
+    if (firstAddedId != null) {
+      setSelectedId((prev) => prev ?? firstAddedId)
+    }
     setIsOcrModalOpen(false)
     triggerToast(
       `Committed ${verifiedOcrRows.length} verified OCR parts to active Cutting List`
@@ -665,33 +619,6 @@ export default function App() {
     triggerToast(`Added ${newPart.num} (${newPart.part})`)
   }
 
-  // Add new stock sheet
-  const handleAddMaterial = () => {
-    const lVal = Number(newSheet.l) || 2440
-    const wVal = Number(newSheet.w) || 1220
-    const hVal = Number(newSheet.h) || 18
-    const matVal = newSheet.material.trim() || 'MDF'
-    const nextNum = inventory.length + 1
-    const colors = ['bg-[#FACC15]', 'bg-[#F59E0B]', 'bg-[#CA8A04]']
-    const icons = ['clipboard', 'layers', 'sheet']
-
-    const created = {
-      id: Date.now(),
-      num: String(nextNum),
-      l: lVal,
-      w: wVal,
-      h: hVal,
-      material: matVal,
-      usedPercent: 78,
-      barColor: colors[(nextNum - 1) % colors.length],
-      iconType: icons[(nextNum - 1) % icons.length],
-    }
-
-    setInventory((prev) => [...prev, created])
-    setNewSheet({ l: '2440', w: '1220', h: '18', material: '18mm Marine Plywood' })
-    triggerToast(`Added Sheet #${nextNum} (${lVal} × ${wVal} × ${hVal} mm ${matVal})`)
-  }
-
   const selectedPartIndex = parts.findIndex((p) => p.id === selectedId)
   const selectedPartObj = selectedPartIndex >= 0 ? parts[selectedPartIndex] : null
   const totalPiecesCount = parts.reduce((acc, p) => acc + (Number(p.qty) || 1), 0)
@@ -732,66 +659,14 @@ export default function App() {
 
       {/* ============================================================
           THREE-COLUMN MAIN DASHBOARD
-          Left: ~25% (Inventory) | Center: ~50% (Cutting List) | Right: ~25% (Upload + Design)
+          Left: Input + Projects | Center: Expanded Cutting List | Right: 3D Preview + 2D Blueprint
          ============================================================ */}
-      <div className="w-full max-w-[1680px] mx-auto px-4 lg:px-6 py-4 flex-1 flex flex-col">
-        <main className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 items-stretch">
+      <div className="w-full max-w-[1760px] mx-auto px-4 lg:px-5 py-3 flex-1 flex flex-col">
+        <main className="grid grid-cols-1 lg:grid-cols-[310px_minmax(0,1fr)_420px] xl:grid-cols-[330px_minmax(0,1fr)_450px] gap-3.5 flex-1 items-stretch">
           {/* ------------------------------------------------------------
-              A. LEFT COLUMN (`InventoryPanel.jsx`)
+              A. LEFT COLUMN: `<UploadCard />` (top) + `<ProjectSidebar />` (bottom)
              ------------------------------------------------------------ */}
-          <section className="lg:col-span-3 flex flex-col">
-            <InventoryPanel
-              inventory={inventory}
-              unit={unit}
-              formatDim={formatDim}
-              newSheet={newSheet}
-              onSetNewSheet={setNewSheet}
-              onAddMaterial={handleAddMaterial}
-            />
-          </section>
-
-          {/* ------------------------------------------------------------
-              B. CENTER COLUMN (`CuttingListTable.jsx` + `ProjectTray.jsx`)
-             ------------------------------------------------------------ */}
-          <section className="lg:col-span-6 flex flex-col">
-            <CuttingListTable
-              parts={parts}
-              totalPiecesCount={totalPiecesCount}
-              unit={unit}
-              onSetUnit={setUnit}
-              selectedId={selectedId}
-              editingId={editingId}
-              editDraft={editDraft}
-              isRipSorted={isRipSorted}
-              formatDim={formatDim}
-              onRowClick={handleRowClick}
-              onStartEditing={startEditing}
-              onChangeEditDraft={setEditDraft}
-              onSaveEdit={saveEdit}
-              onCancelEdit={cancelEdit}
-              onDeleteRow={deleteRow}
-              onAddPart={handleAddPart}
-              onExportCsv={handleExportCsv}
-              onExportPdf={handleExportPdf}
-            >
-              <ProjectTray
-                projects={projects}
-                selectedJobs={selectedJobs}
-                onToggleJob={handleToggleJob}
-                onCreateProject={handleCreateProject}
-                isConsolidated={isConsolidated}
-                isRipSorted={isRipSorted}
-                aggregationStats={aggregationStats}
-                onConsolidateJobs={handleConsolidateJobs}
-                onSortForRipCuts={handleSortForRipCuts}
-              />
-            </CuttingListTable>
-          </section>
-
-          {/* ------------------------------------------------------------
-              C. RIGHT COLUMN (`UploadCard.jsx` + `CabinetWireframe.jsx`)
-             ------------------------------------------------------------ */}
-          <section className="lg:col-span-3 flex flex-col gap-4">
+          <section className="flex flex-col gap-3 min-w-0">
             <UploadCard
               uploadMode={uploadMode}
               onSetUploadMode={setUploadMode}
@@ -808,12 +683,59 @@ export default function App() {
               }
             />
 
-            {/* CARD 2: "Design" Per-Project 3D WebGL Viewport (Continuously Mounted in Normal & Fullscreen Modes) */}
+            <ProjectSidebar
+              projects={projects}
+              selectedJobs={selectedJobs}
+              activeProjectId={activeProjectId}
+              onToggleJob={handleToggleJob}
+              onCreateProject={handleCreateProject}
+              isConsolidated={isConsolidated}
+              isRipSorted={isRipSorted}
+              aggregationStats={aggregationStats}
+              onConsolidateJobs={handleConsolidateJobs}
+              onSortForRipCuts={handleSortForRipCuts}
+            />
+          </section>
+
+          {/* ------------------------------------------------------------
+              B. CENTER COLUMN: Expanded `<CuttingListTable />`
+             ------------------------------------------------------------ */}
+          <section className="flex flex-col min-w-0">
+            <CuttingListTable
+              parts={parts}
+              totalPiecesCount={totalPiecesCount}
+              activeProjectLabel={activeProject?.shortLabel || activeProject?.id}
+              selectedJobsCount={selectedJobs.length}
+              isConsolidated={isConsolidated}
+              isRipSorted={isRipSorted}
+              unit={unit}
+              onSetUnit={setUnit}
+              selectedId={selectedId}
+              editingId={editingId}
+              editDraft={editDraft}
+              formatDim={formatDim}
+              onRowClick={handleRowClick}
+              onStartEditing={startEditing}
+              onChangeEditDraft={setEditDraft}
+              onSaveEdit={saveEdit}
+              onCancelEdit={cancelEdit}
+              onDeleteRow={deleteRow}
+              onAddPart={handleAddPart}
+              onExportCsv={handleExportCsv}
+              onExportPdf={handleExportPdf}
+            />
+          </section>
+
+          {/* ------------------------------------------------------------
+              C. RIGHT COLUMN: `<CabinetWireframe />` (top) + `<PartBlueprintInspector />` (bottom)
+             ------------------------------------------------------------ */}
+          <section className="flex flex-col gap-3 min-w-0">
+            {/* TOP CARD: Per-Project 3D WebGL Viewport (Continuously Mounted in Normal & Fullscreen Modes) */}
             <div
               className={
                 isDesignExpanded
                   ? 'fixed inset-0 z-50 bg-zinc-950/65 backdrop-blur-xs flex items-center justify-center p-6'
-                  : 'flex flex-col flex-1 min-h-[370px]'
+                  : 'flex flex-col h-[356px] xl:h-[390px] shrink-0'
               }
               onClick={
                 isDesignExpanded ? () => setIsDesignExpanded(false) : undefined
@@ -824,27 +746,27 @@ export default function App() {
                 className={
                   isDesignExpanded
                     ? 'bg-white dark:bg-zinc-900 rounded-2xl border-2 border-[#FACC15] shadow-2xl w-full max-w-4xl h-[82vh] max-h-[680px] p-6 flex flex-col relative transition-colors'
-                    : 'bg-white dark:bg-zinc-900 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm p-4 flex flex-col flex-1 min-h-[370px] relative transition-colors'
+                    : 'bg-white dark:bg-zinc-900 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm p-3.5 flex flex-col h-full relative transition-colors'
                 }
               >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-md bg-zinc-900 dark:bg-zinc-800 flex items-center justify-center border border-transparent dark:border-zinc-700">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-6 h-6 rounded-md bg-[#111827] dark:bg-zinc-800 flex items-center justify-center border border-transparent dark:border-zinc-700 shrink-0">
                       <Box className="w-3.5 h-3.5 text-[#FACC15] stroke-[2.2]" />
                     </div>
-                    <h2 className="text-[15px] font-bold text-zinc-900 dark:text-zinc-100">
+                    <h2 className="text-[14px] font-bold text-zinc-900 dark:text-zinc-100 truncate">
                       {isDesignExpanded
-                        ? `Design — ${activeProject?.fullName || '3D Isometric Wireframe'}`
-                        : 'Design'}
+                        ? `3D Preview — ${activeProject?.fullName || '3D Isometric Wireframe'}`
+                        : '3D Preview'}
                     </h2>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
                     {selectedPartObj ? (
-                      <span className="text-[11px] font-bold text-zinc-950 bg-[#FACC15] border border-[#EAB308] px-2 py-0.5 rounded-md">
+                      <span className="text-[10.5px] font-mono font-extrabold text-zinc-950 bg-[#FACC15] border border-[#EAB308] px-2 py-0.5 rounded-md truncate max-w-[165px]">
                         {selectedPartObj.num} {selectedPartObj.part}
                       </span>
                     ) : (
-                      <span className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">
+                      <span className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400 truncate max-w-[165px]">
                         {activeProject?.shortLabel || activeProject?.id}
                       </span>
                     )}
@@ -861,7 +783,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex-1 rounded-xl border border-gray-200 dark:border-zinc-800 bg-[#111827] relative flex items-center justify-center overflow-hidden">
+                <div className="flex-1 min-h-0 rounded-xl border border-gray-200 dark:border-zinc-800 bg-[#111827] relative flex items-center justify-center overflow-hidden">
                   <CabinetWireframe
                     unit={unit}
                     zoom={zoom}
@@ -907,6 +829,12 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            {/* BOTTOM CARD: Live 2D Part Blueprint & Spec Inspector */}
+            <PartBlueprintInspector
+              selectedPart={selectedPartObj}
+              unit={unit}
+            />
           </section>
         </main>
       </div>

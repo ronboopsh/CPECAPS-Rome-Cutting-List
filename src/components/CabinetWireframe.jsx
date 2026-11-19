@@ -1145,9 +1145,11 @@ export default function CabinetWireframe({
       }
     }
     handleResize()
+    const rafId = requestAnimationFrame(handleResize)
     window.addEventListener('resize', handleResize)
     document.addEventListener('fullscreenchange', handleResize)
     return () => {
+      cancelAnimationFrame(rafId)
       window.removeEventListener('resize', handleResize)
       document.removeEventListener('fullscreenchange', handleResize)
     }
@@ -1296,31 +1298,33 @@ export default function CabinetWireframe({
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full min-h-[300px] bg-[#111827] flex items-center justify-center overflow-hidden select-none rounded-xl"
+      className="relative w-full h-full min-h-0 bg-[#111827] flex items-center justify-center overflow-hidden select-none rounded-xl"
     >
       {/* Interactive Three.js WebGL Canvas */}
       <canvas ref={canvasRef} className="w-full h-full block outline-none" />
 
       {/* Top-Left HUD Badge: Active Model & Controls Hint */}
-      <div className="absolute top-2.5 left-2.5 pointer-events-none flex flex-col gap-1">
-        <div className="inline-flex items-center gap-1.5 bg-zinc-900/90 border border-zinc-700 text-zinc-200 px-2.5 py-1 rounded-md text-[10.5px] font-semibold shadow-xs">
-          <span className="w-2 h-2 rounded-full bg-[#FACC15] inline-block" />
-          <span>{modelStatus}</span>
+      <div className="absolute top-2.5 left-2.5 pointer-events-none flex flex-col gap-1 max-w-[46%]">
+        <div className="inline-flex items-center gap-1.5 bg-zinc-900/90 border border-zinc-700 text-zinc-200 px-2 py-1 rounded-md text-[10px] font-semibold shadow-xs max-w-full">
+          <span className="w-2 h-2 rounded-full bg-[#FACC15] shrink-0 inline-block" />
+          <span className="truncate">{modelStatus}</span>
           {explodeProgress > 0.01 && (
-            <span className="ml-1 px-1.5 py-0.2 rounded bg-[#FACC15] text-zinc-950 text-[9.5px] font-extrabold">
-              EXPLODED {Math.round(explodeProgress * 100)}%
+            <span className="ml-1 px-1.5 py-0.2 rounded bg-[#FACC15] text-zinc-950 text-[9px] font-extrabold shrink-0">
+              {Math.round(explodeProgress * 100)}%
             </span>
           )}
         </div>
-        <div className="inline-flex items-center gap-2 text-[10px] text-zinc-400 bg-zinc-950/75 px-2 py-0.5 rounded border border-zinc-800 w-fit">
-          <span>Orbit: Drag · Zoom: Scroll · Click Panel to Select</span>
-        </div>
+        {isExpanded && (
+          <div className="inline-flex items-center gap-2 text-[10px] text-zinc-400 bg-zinc-950/75 px-2 py-0.5 rounded border border-zinc-800 w-fit">
+            <span>Orbit: Drag · Zoom: Scroll · Click Panel to Select</span>
+          </div>
+        )}
       </div>
 
       {/* Top-Right HUD Dimension Callout for Active/Hovered Part */}
       {(hoveredPanel || selectedPart) && (
-        <div className="absolute top-2.5 right-2.5 pointer-events-none bg-zinc-950/90 border border-[#FACC15] text-zinc-100 px-2.5 py-1.5 rounded-lg text-[11px] shadow-md max-w-[230px]">
-          <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#FACC15]">
+        <div className="absolute top-2.5 right-2.5 pointer-events-none bg-zinc-950/90 border border-[#FACC15] text-zinc-100 px-2 py-1 rounded-lg text-[10.5px] shadow-md max-w-[48%]">
+          <div className="text-[9px] font-extrabold uppercase tracking-wider text-[#FACC15] truncate">
             {hoveredPanel
               ? 'Inspecting 3D Panel'
               : selectedPart?.isOrnament
@@ -1332,7 +1336,7 @@ export default function CabinetWireframe({
               ? hoveredPanel.partName
               : `${selectedPart.num || ''} ${selectedLabel}`}
           </div>
-          <div className="text-[10.5px] text-zinc-300 font-mono">
+          <div className="text-[10px] text-zinc-300 font-mono truncate">
             {hoveredPanel
               ? hoveredPanel.displayDims
               : `${fmt(selectedPart.l)} × ${fmt(selectedPart.w)} × ${fmt(selectedPart.h)}`}
@@ -1340,14 +1344,16 @@ export default function CabinetWireframe({
         </div>
       )}
 
-      {/* Bottom-Left Overall Cabinet Dimension Reference Pill */}
-      <div className="absolute bottom-3 left-3 pointer-events-none hidden sm:flex items-center gap-1.5 bg-zinc-900/85 border border-zinc-700 text-zinc-300 px-2.5 py-1 rounded-md text-[10.5px] font-mono">
-        <span>W: {fmt(modelBoundsSummary.w)}</span>
-        <span className="text-zinc-600">·</span>
-        <span>D: {fmt(modelBoundsSummary.d)}</span>
-        <span className="text-zinc-600">·</span>
-        <span>H: {fmt(modelBoundsSummary.h)}</span>
-      </div>
+      {/* Bottom-Left Overall Cabinet Dimension Reference Pill (Fullscreen only to prevent overlap with Explode controls) */}
+      {isExpanded && (
+        <div className="absolute bottom-3 left-3 pointer-events-none hidden sm:flex items-center gap-1.5 bg-zinc-900/85 border border-zinc-700 text-zinc-300 px-2.5 py-1 rounded-md text-[10.5px] font-mono">
+          <span>W: {fmt(modelBoundsSummary.w)}</span>
+          <span className="text-zinc-600">·</span>
+          <span>D: {fmt(modelBoundsSummary.d)}</span>
+          <span className="text-zinc-600">·</span>
+          <span>H: {fmt(modelBoundsSummary.h)}</span>
+        </div>
+      )}
 
       {/* Bottom-Right Floating Action Capsule (Explode, Focus/Zoom, Reset, Expand/Minimize) */}
       <div className="absolute bottom-3 right-3 flex items-center gap-2 z-10">
