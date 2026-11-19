@@ -183,6 +183,10 @@ def classify(exc: BaseException, stage: str) -> str:
         return "RC-900"
     if isinstance(exc, ImportError):
         return "RC-501"
+    if isinstance(exc, PermissionError):
+        return "RC-502"
+    if isinstance(exc, ConnectionError):
+        return "RC-501"
     if stage == "cad":
         if "malformed cad" in text:
             return "RC-102"

@@ -37,6 +37,9 @@ import sys
 import tempfile
 import threading
 import time
+import socket
+import urllib.error
+import urllib.request
  
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -194,8 +197,66 @@ def fault_gateway_contract(ctx):
         f.write(open(bad_path, encoding="utf-8").read().replace(name, name.replace("_v2", "")))
     assert diag.run_gateway_check(bad_path)["led"] == "GREEN"
     return t_inject, det.t_detect, time.perf_counter()
- 
- 
+
+
+def fault_io_temp_unwritable(ctx):
+    """Category: I/O (RC-502 - Temp upload file not writable)."""
+    probe = os.path.join(ctx["tmp"], "upload_stage.tmp")
+    with open(probe, "w", encoding="utf-8") as f:
+        f.write("init")
+    os.chmod(probe, 0o444)
+
+    def write_temp():
+        with open(probe, "w", encoding="utf-8") as f:
+            f.write("payload")
+
+    det = Detector("RC-502"); diag.subscribe(det)
+    t_inject = time.perf_counter()
+    try:
+        diag.run_stage("system", write_temp)
+    except PermissionError:
+        pass
+    finally:
+        diag.unsubscribe(det)
+    os.chmod(probe, 0o666)
+    diag.run_stage("system", write_temp)
+    return t_inject, det.t_detect, time.perf_counter()
+
+
+def fault_network_api_unreachable(ctx):
+    """Category: Network (Backend API unreachable / connection refused)."""
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        dead_port = s.getsockname()[1]
+
+    def poll_health():
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{dead_port}/api/diagnostics/health", timeout=0.2)
+        except urllib.error.URLError as exc:
+            raise ConnectionError(f"API unreachable: {exc.reason}") from exc
+
+    det = Detector("RC-501"); diag.subscribe(det)
+    t_inject = time.perf_counter()
+    try:
+        diag.run_stage("gateway", poll_health)
+    except ConnectionError:
+        pass
+    finally:
+        diag.unsubscribe(det)
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    live_port = srv.getsockname()[1]
+    try:
+        def poll_live():
+            with socket.create_connection(("127.0.0.1", live_port), timeout=0.2):
+                return True
+        diag.run_stage("gateway", poll_live)
+    finally:
+        srv.close()
+    return t_inject, det.t_detect, time.perf_counter()
+
+
 FAULTS = [
     # id, title, fn, expected code, n, tools, steps
     dict(id="F1", title="CAD part with zero thickness", fn=fault_cad_zero_thickness, code="RC-101", n=30,
@@ -228,6 +289,16 @@ FAULTS = [
          tools=["python -m backend.diagnostics (AST import-contract check)", "time.perf_counter()"],
          steps=["Start API: import fails in backend/main.py", "Run self-test: gateway LED RED, RC-501 lists the 4 names",
                 "Restore the correct import name in main.py; re-run self-test; gateway LED GREEN"]),
+    dict(id="F7", title="Temp dir/file not writable (I/O error)", fn=fault_io_temp_unwritable,
+         code="RC-502", n=30,
+         tools=["backend/diagnostics.py run_stage()", "logs/rome_diag.jsonl", "time.perf_counter()"],
+         steps=["Upload temp path becomes read-only", "Stage fails with [RC-502] PermissionError",
+                "Restore write permissions on temp path; re-run stage; log shows RC-000"]),
+    dict(id="F8", title="Backend API unreachable (network drop)", fn=fault_network_api_unreachable,
+         code="RC-501", n=30,
+         tools=["backend/diagnostics.py run_stage()", "urllib.request", "logs/rome_diag.jsonl", "time.perf_counter()"],
+         steps=["Backend API port stops accepting connections", "Health poll logs [RC-501] API unreachable",
+                "Restart backend listener; health check succeeds and logs RC-000"]),
 ]
  
  

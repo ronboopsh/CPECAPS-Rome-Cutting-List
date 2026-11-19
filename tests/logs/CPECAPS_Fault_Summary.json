@@ -1,0 +1,248 @@
+{
+  "generated": "2026-11-19 21:10:05",
+  "faults": [
+    {
+      "id": "F1",
+      "title": "CAD part with zero thickness",
+      "code": "RC-101",
+      "tools": [
+        "backend/diagnostics.py run_stage()",
+        "logs/rome_diag.jsonl",
+        "time.perf_counter()",
+        "python -m backend.diagnostics --tail"
+      ],
+      "steps": [
+        "Upload CAD with a 0 mm component",
+        "Read UI/API message: [RC-101] ... component #3",
+        "Look up RC-101 in the code table (open component #3 in SketchUp)",
+        "Set a valid thickness (18 mm) and re-export",
+        "Re-upload; confirm RC-000 'ok' in log"
+      ],
+      "n": 30,
+      "detect_only": false,
+      "detection_rate": 1.0,
+      "repair_rate": 1.0,
+      "mttd_ms": {
+        "n": 30,
+        "mean": 0.09245333300592999,
+        "sd": 0.0171392422799281,
+        "median": 0.08269999852927867,
+        "min": 0.07729999924777076,
+        "max": 0.13269999908516183,
+        "ci95_low": 0.08605415335152579,
+        "ci95_high": 0.0988525126603342
+      },
+      "mttr_ms": {
+        "n": 30,
+        "mean": 0.12339666694363889,
+        "sd": 0.02955341720362625,
+        "median": 0.10800000018207356,
+        "min": 0.10119999933522195,
+        "max": 0.20600000061676838,
+        "ci95_low": 0.11236247867564052,
+        "ci95_high": 0.13443085521163725
+      }
+    },
+    {
+      "id": "F2",
+      "title": "Malformed CAD payload (missing 'components')",
+      "code": "RC-102",
+      "tools": [
+        "backend/diagnostics.py run_stage()",
+        "logs/rome_diag.jsonl",
+        "time.perf_counter()"
+      ],
+      "steps": [
+        "Upload CAD export with wrong root node",
+        "Read message: [RC-102] missing 'components' root",
+        "Re-export from the CAD tool with the components root",
+        "Re-upload; confirm RC-000 in log"
+      ],
+      "n": 30,
+      "detect_only": false,
+      "detection_rate": 1.0,
+      "repair_rate": 1.0,
+      "mttd_ms": {
+        "n": 30,
+        "mean": 0.0598033331092059,
+        "sd": 0.00813504476904974,
+        "median": 0.0562999994144775,
+        "min": 0.05439999949885532,
+        "max": 0.08329999764100648,
+        "ci95_low": 0.056765998545429096,
+        "ci95_high": 0.06284066767298271
+      },
+      "mttr_ms": {
+        "n": 30,
+        "mean": 0.10946999997637856,
+        "sd": 0.020971444462414182,
+        "median": 0.10199999996984843,
+        "min": 0.09770000178832561,
+        "max": 0.18400000044493936,
+        "ci95_low": 0.10164001318142489,
+        "ci95_high": 0.11729998677133223
+      }
+    },
+    {
+      "id": "F3",
+      "title": "Corrupt / unreadable OCR photo",
+      "code": "RC-201",
+      "tools": [
+        "backend/diagnostics.py run_stage() + watchdog",
+        "OpenCV imread",
+        "Tesseract 5.3.4",
+        "logs/rome_diag.jsonl",
+        "time.perf_counter()"
+      ],
+      "steps": [
+        "Upload a truncated/garbage .png",
+        "Read message: [RC-201] could not read the image",
+        "Retake or re-save the paper-cutlist photo",
+        "Re-upload; OCR returns rows; log shows RC-000"
+      ],
+      "n": 10,
+      "detect_only": false,
+      "detection_rate": 1.0,
+      "repair_rate": 1.0,
+      "mttd_ms": {
+        "n": 10,
+        "mean": 10.26506000016525,
+        "sd": 2.8012640443774366,
+        "median": 9.599100001651095,
+        "min": 7.684099997277372,
+        "max": 17.665100000158418,
+        "ci95_low": 8.261295641268198,
+        "ci95_high": 12.2688243590623
+      },
+      "mttr_ms": {
+        "n": 10,
+        "mean": 13496.530009999697,
+        "sd": 835.2168929214944,
+        "median": 13382.23199999993,
+        "min": 12465.666500000225,
+        "max": 15174.270700001216,
+        "ci95_low": 12899.09334731024,
+        "ci95_high": 14093.966672689154
+      }
+    },
+    {
+      "id": "F4",
+      "title": "Pipeline stage hangs (deadlock)",
+      "code": "RC-900",
+      "tools": [
+        "backend/diagnostics.py run_with_watchdog() (1.0 s limit)",
+        "logs/rome_diag.jsonl",
+        "threading.Event",
+        "time.perf_counter()"
+      ],
+      "steps": [
+        "Aggregation stage stops responding",
+        "Watchdog aborts the request at 1.0 s and logs RC-900",
+        "Operator reads RC-900 action: retry",
+        "Release stuck worker, re-run stage; log shows RC-000"
+      ],
+      "n": 10,
+      "detect_only": false,
+      "detection_rate": 1.0,
+      "repair_rate": 1.0,
+      "mttd_ms": {
+        "n": 10,
+        "mean": 1009.4307799998205,
+        "sd": 3.9771399227264808,
+        "median": 1008.6632000020472,
+        "min": 1003.6712000000989,
+        "max": 1016.35289999831,
+        "ci95_low": 1006.5859031509203,
+        "ci95_high": 1012.2756568487207
+      },
+      "mttr_ms": {
+        "n": 10,
+        "mean": 1.1268600006587803,
+        "sd": 0.3011853474976218,
+        "median": 1.064300000507501,
+        "min": 0.7424000032187905,
+        "max": 1.6725000023143366,
+        "ci95_low": 0.9114199510322258,
+        "ci95_high": 1.3423000502853348
+      }
+    },
+    {
+      "id": "F5",
+      "title": "Corrupt inventory record (missing thickness)",
+      "code": "RC-401",
+      "tools": [
+        "backend/diagnostics.py run_stage() + self-test",
+        "logs/rome_diag.jsonl",
+        "time.perf_counter()"
+      ],
+      "steps": [
+        "Remnant record loses its 'h' field",
+        "Remnant match fails; log shows [RC-401] KeyError 'h'",
+        "Open inventory_db.py, find the record with the missing field",
+        "Restore the field; re-run match; log shows RC-000"
+      ],
+      "n": 30,
+      "detect_only": false,
+      "detection_rate": 1.0,
+      "repair_rate": 1.0,
+      "mttd_ms": {
+        "n": 30,
+        "mean": 0.1338466669646247,
+        "sd": 0.008923689068335312,
+        "median": 0.13000000035390258,
+        "min": 0.1264000020455569,
+        "max": 0.16010000035748817,
+        "ci95_low": 0.13051488084504834,
+        "ci95_high": 0.13717845308420104
+      },
+      "mttr_ms": {
+        "n": 30,
+        "mean": 0.1431699992584375,
+        "sd": 0.007657142629874718,
+        "median": 0.14014999942446593,
+        "min": 0.13620000027003698,
+        "max": 0.16990000221994705,
+        "ci95_low": 0.14031109624932672,
+        "ci95_high": 0.1460289022675483
+      }
+    },
+    {
+      "id": "F6",
+      "title": "Gateway import contract broken",
+      "code": "RC-501",
+      "tools": [
+        "python -m backend.diagnostics (AST import-contract check)",
+        "time.perf_counter()"
+      ],
+      "steps": [
+        "Start API: import fails in backend/main.py",
+        "Run self-test: gateway LED RED, RC-501 lists the 4 names",
+        "Restore the correct import name in main.py; re-run self-test; gateway LED GREEN"
+      ],
+      "n": 30,
+      "detect_only": false,
+      "detection_rate": 1.0,
+      "repair_rate": 1.0,
+      "mttd_ms": {
+        "n": 30,
+        "mean": 12.065749999601394,
+        "sd": 0.43755292244922983,
+        "median": 12.065449998772237,
+        "min": 11.332199999742443,
+        "max": 13.321200000063982,
+        "ci95_low": 11.902383398363643,
+        "ci95_high": 12.229116600839145
+      },
+      "mttr_ms": {
+        "n": 30,
+        "mean": 0.6612933335418347,
+        "sd": 0.09511663964413448,
+        "median": 0.6301000012172153,
+        "min": 0.5782999978691805,
+        "max": 1.007999999274034,
+        "ci95_low": 0.6257801845201386,
+        "ci95_high": 0.6968064825635308
+      }
+    }
+  ]
+}
