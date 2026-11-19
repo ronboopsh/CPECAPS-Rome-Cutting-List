@@ -1,4 +1,9 @@
 node_modules/
+__pycache__/
+*.pyc
+/logs/
+tests/logs/diag/
 dist/
 .env
 .DS_Store
+ 
