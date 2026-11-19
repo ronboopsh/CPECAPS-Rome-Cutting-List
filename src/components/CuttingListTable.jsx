@@ -365,6 +365,17 @@ export default function CuttingListTable({
                               ORNAMENT
                             </span>
                           )}
+                          {row.autoAdjusted && (
+                            <span
+                              title={
+                                row.adjustmentNote ||
+                                'Automatically resized to clear 3D panel intersection'
+                              }
+                              className="inline-flex items-center bg-sky-500/15 text-sky-800 dark:text-sky-300 border border-sky-500/45 text-[10px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded cursor-help"
+                            >
+                              AUTO-ADJUSTED
+                            </span>
+                          )}
                           {isMultiJob && (
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-[#FACC15] text-zinc-950 border border-[#EAB308]">
                               MERGED ×{qtyVal}

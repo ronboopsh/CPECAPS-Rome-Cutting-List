@@ -99,11 +99,14 @@ function normalizeRowForExport(item) {
       .filter(Boolean)
       .join(' | ') ||
     'Standard Cut'
-  const remarks = item.isOrnament
+  let remarks = item.isOrnament
     ? baseRemarks.includes('[ORNAMENT]')
       ? baseRemarks
       : `[ORNAMENT] ${baseRemarks}`
     : baseRemarks
+  if (item.autoAdjusted && !remarks.includes('[AUTO-ADJUSTED]')) {
+    remarks = `[AUTO-ADJUSTED] ${remarks}`
+  }
 
   return {
     partName,

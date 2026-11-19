@@ -328,6 +328,7 @@ export default function CabinetWireframe({
   const isCustomModelRef = useRef(false)
   const defaultCameraPosRef = useRef(new THREE.Vector3(920, 680, 960))
   const defaultTargetRef = useRef(new THREE.Vector3(0, 0, 0))
+  const cameraAnimFrameRef = useRef(null)
 
   // Interactive Exploded View state (0.0 = assembled, 1.0 = 120mm exploded)
   const [internalExploded, setInternalExploded] = useState(false)
@@ -559,12 +560,83 @@ export default function CabinetWireframe({
     highlightMeshByIndex(selectedPartIndex)
   }
 
+  const cancelCameraAnimation = () => {
+    if (cameraAnimFrameRef.current) {
+      cancelAnimationFrame(cameraAnimFrameRef.current)
+      cameraAnimFrameRef.current = null
+    }
+  }
+
+  // Smoothly center camera & OrbitControls pivot onto a specific 3D panel mesh
+  const centerCameraOnMesh = (targetMesh) => {
+    const camera = cameraRef.current
+    const controls = controlsRef.current
+    if (!camera || !controls || !targetMesh) return
+
+    targetMesh.updateWorldMatrix(true, false)
+    const box = new THREE.Box3().setFromObject(targetMesh)
+    if (box.isEmpty()) return
+
+    cancelCameraAnimation()
+
+    const endTarget = new THREE.Vector3()
+    const size = new THREE.Vector3()
+    box.getCenter(endTarget)
+    box.getSize(size)
+
+    const maxDim = Math.max(size.x, size.y, size.z, 1)
+    const fov = camera.fov * (Math.PI / 180)
+    const distance = Math.max((maxDim / (2 * Math.tan(fov / 2))) * 1.65, 120)
+
+    const direction = camera.position.clone().sub(controls.target).normalize()
+    if (direction.lengthSq() < 0.0001) {
+      direction.set(1.15, 0.85, 1.25).normalize()
+    }
+
+    const startPos = camera.position.clone()
+    const endPos = endTarget.clone().add(direction.multiplyScalar(distance))
+    const startTarget = controls.target.clone()
+
+    // Keep full-assembly zoom-out range intact while allowing close-up inspection
+    camera.near = Math.min(camera.near || 1, Math.max(0.1, maxDim / 500))
+    camera.far = Math.max(camera.far || 20000, maxDim * 50)
+    camera.updateProjectionMatrix()
+    controls.minDistance = Math.min(controls.minDistance || maxDim * 0.15, maxDim * 0.15)
+    controls.maxDistance = Math.max(controls.maxDistance || maxDim * 12, maxDim * 12)
+
+    const durationMs = 320
+    const startTime = performance.now()
+
+    const step = (now) => {
+      const t = Math.min(1, Math.max(0, (now - startTime) / durationMs))
+      // Cubic ease-out
+      const eased = 1 - Math.pow(1 - t, 3)
+
+      camera.position.lerpVectors(startPos, endPos, eased)
+      controls.target.lerpVectors(startTarget, endTarget, eased)
+      controls.update()
+
+      if (t < 1) {
+        cameraAnimFrameRef.current = requestAnimationFrame(step)
+      } else {
+        camera.position.copy(endPos)
+        controls.target.copy(endTarget)
+        controls.update()
+        cameraAnimFrameRef.current = null
+      }
+    }
+
+    cameraAnimFrameRef.current = requestAnimationFrame(step)
+  }
+
   // Auto-scale camera, clipping planes, OrbitControls, and ground grid to fit any unit scale
   const fitCameraAndGridToBox = (box, isIsometricReset = true) => {
     const camera = cameraRef.current
     const controls = controlsRef.current
     const grid = gridHelperRef.current
     if (!camera || !controls || box.isEmpty()) return
+
+    cancelCameraAnimation()
 
     const center = new THREE.Vector3()
     const size = new THREE.Vector3()
@@ -779,6 +851,10 @@ export default function CabinetWireframe({
             part: assignedRole,
             panelRole: assignedRole,
             isOrnament: false,
+            autoAdjusted: Boolean(rec.autoAdjusted),
+            adjustmentNote: rec.adjustmentNote || '',
+            originalDimsMm: rec.originalDimsMm || null,
+            totalTrimMm: rec.totalTrimMm || 0,
             qty: 1,
             l: Math.max(2, Math.round(sub.l)),
             w: Math.max(2, Math.round(sub.w)),
@@ -800,6 +876,10 @@ export default function CabinetWireframe({
           part: assignedRole,
           panelRole: assignedRole,
           isOrnament: false,
+          autoAdjusted: Boolean(rec.autoAdjusted),
+          adjustmentNote: rec.adjustmentNote || '',
+          originalDimsMm: rec.originalDimsMm || null,
+          totalTrimMm: rec.totalTrimMm || 0,
           qty: 1,
           l: sortedDims[0],
           w: sortedDims[1],
@@ -977,6 +1057,7 @@ export default function CabinetWireframe({
     controls.enableDamping = true
     controls.dampingFactor = 0.08
     controls.target.copy(defaultTargetRef.current)
+    controls.addEventListener('start', cancelCameraAnimation)
     controls.update()
     controlsRef.current = controls
 
@@ -1016,62 +1097,76 @@ export default function CabinetWireframe({
       }
     }
 
+    const selectHitMesh = (hitMesh) => {
+      if (!hitMesh || !onSelectPartRef.current) return
+      const hitUuid = hitMesh.uuid
+      const hitData = hitMesh.userData
+      const currentParts = partsRef.current || []
+
+      let matchedRow = null
+      // 1. Map clicked mesh's UUID back to the consolidated or individual part/ornament record (`meshUuids`)
+      if (hitUuid) {
+        matchedRow = currentParts.find(
+          (p) =>
+            (Array.isArray(p.meshUuids) && p.meshUuids.includes(hitUuid)) ||
+            p.meshUuid === hitUuid
+        )
+      }
+      // 2. Match by unique partId
+      if (!matchedRow && hitData.partId) {
+        matchedRow = currentParts.find((p) => p.id === hitData.partId)
+      }
+      // 3. Match by panelIndices / panelIndex
+      if (!matchedRow && typeof hitData.panelIndex === 'number') {
+        matchedRow = currentParts.find(
+          (p) =>
+            (Array.isArray(p.panelIndices) &&
+              p.panelIndices.includes(hitData.panelIndex)) ||
+            p.panelIndex === hitData.panelIndex
+        )
+      }
+      // 4. Match by classified panelRole / partName / ornament flag
+      if (!matchedRow) {
+        matchedRow = currentParts.find((p) =>
+          doesMeshMatchSelectedPart(hitData, p, p.part, null, hitUuid)
+        )
+      }
+      // 5. Fallback to partIndex
+      if (!matchedRow && typeof hitData.partIndex === 'number') {
+        matchedRow = currentParts[hitData.partIndex] || null
+      }
+
+      if (matchedRow) {
+        onSelectPartRef.current(matchedRow.id, matchedRow)
+      } else {
+        onSelectPartRef.current(hitData.partId || null, null, hitData)
+      }
+    }
+
     const handlePointerUp = (e) => {
       const dx = Math.abs(e.clientX - pointerDownPos.x)
       const dy = Math.abs(e.clientY - pointerDownPos.y)
       if (dx > 6 || dy > 6) return
 
       const hits = getIntersects(e)
-      if (hits.length > 0 && onSelectPartRef.current) {
+      if (hits.length > 0) {
+        selectHitMesh(hits[0].object)
+      }
+    }
+
+    const handleDoubleClick = (e) => {
+      const hits = getIntersects(e)
+      if (hits.length > 0) {
         const hitMesh = hits[0].object
-        const hitUuid = hitMesh.uuid
-        const hitData = hitMesh.userData
-        const currentParts = partsRef.current || []
-
-        let matchedRow = null
-        // 1. Map clicked mesh's UUID back to the consolidated or individual part/ornament record (`meshUuids`)
-        if (hitUuid) {
-          matchedRow = currentParts.find(
-            (p) =>
-              (Array.isArray(p.meshUuids) && p.meshUuids.includes(hitUuid)) ||
-              p.meshUuid === hitUuid
-          )
-        }
-        // 2. Match by unique partId
-        if (!matchedRow && hitData.partId) {
-          matchedRow = currentParts.find((p) => p.id === hitData.partId)
-        }
-        // 3. Match by panelIndices / panelIndex
-        if (!matchedRow && typeof hitData.panelIndex === 'number') {
-          matchedRow = currentParts.find(
-            (p) =>
-              (Array.isArray(p.panelIndices) &&
-                p.panelIndices.includes(hitData.panelIndex)) ||
-              p.panelIndex === hitData.panelIndex
-          )
-        }
-        // 4. Match by classified panelRole / partName / ornament flag
-        if (!matchedRow) {
-          matchedRow = currentParts.find((p) =>
-            doesMeshMatchSelectedPart(hitData, p, p.part, null, hitUuid)
-          )
-        }
-        // 5. Fallback to partIndex
-        if (!matchedRow && typeof hitData.partIndex === 'number') {
-          matchedRow = currentParts[hitData.partIndex] || null
-        }
-
-        if (matchedRow) {
-          onSelectPartRef.current(matchedRow.id, matchedRow)
-        } else {
-          onSelectPartRef.current(hitData.partId || null, null, hitData)
-        }
+        selectHitMesh(hitMesh)
+        centerCameraOnMesh(hitMesh)
       }
     }
 
     canvas.addEventListener('pointerdown', handlePointerDown)
     canvas.addEventListener('pointermove', handlePointerMove)
     canvas.addEventListener('pointerup', handlePointerUp)
+    canvas.addEventListener('dblclick', handleDoubleClick)
 
     const resizeObserver = new ResizeObserver(() => {
       if (!containerRef.current || !rendererRef.current || !cameraRef.current) return
@@ -1112,10 +1207,13 @@ export default function CabinetWireframe({
     return () => {
       if (animFrameId) cancelAnimationFrame(animFrameId)
       if (explodeAnimFrameRef.current) cancelAnimationFrame(explodeAnimFrameRef.current)
+      cancelCameraAnimation()
       resizeObserver.disconnect()
       canvas.removeEventListener('pointerdown', handlePointerDown)
       canvas.removeEventListener('pointermove', handlePointerMove)
       canvas.removeEventListener('pointerup', handlePointerUp)
+      canvas.removeEventListener('dblclick', handleDoubleClick)
+      controls.removeEventListener('start', cancelCameraAnimation)
       controls.dispose()
       clearGroup(cabinetGroup)
       gridHelper.geometry?.dispose()
@@ -1316,7 +1414,7 @@ export default function CabinetWireframe({
         </div>
         {isExpanded && (
           <div className="inline-flex items-center gap-2 text-[10px] text-zinc-400 bg-zinc-950/75 px-2 py-0.5 rounded border border-zinc-800 w-fit">
-            <span>Orbit: Drag · Zoom: Scroll · Click Panel to Select</span>
+            <span>Orbit: Drag · Zoom: Scroll · Click: Select · Double-Click: Center</span>
           </div>
         )}
       </div>
@@ -1324,12 +1422,19 @@ export default function CabinetWireframe({
       {/* Top-Right HUD Dimension Callout for Active/Hovered Part */}
       {(hoveredPanel || selectedPart) && (
         <div className="absolute top-2.5 right-2.5 pointer-events-none bg-zinc-950/90 border border-[#FACC15] text-zinc-100 px-2 py-1 rounded-lg text-[10.5px] shadow-md max-w-[48%]">
-          <div className="text-[9px] font-extrabold uppercase tracking-wider text-[#FACC15] truncate">
-            {hoveredPanel
-              ? 'Inspecting 3D Panel'
-              : selectedPart?.isOrnament
-              ? 'Selected Ornament'
-              : 'Selected Cut Plane'}
+          <div className="flex items-center justify-between gap-1.5">
+            <span className="text-[9px] font-extrabold uppercase tracking-wider text-[#FACC15] truncate">
+              {hoveredPanel
+                ? 'Inspecting 3D Panel'
+                : selectedPart?.isOrnament
+                ? 'Selected Ornament'
+                : 'Selected Cut Plane'}
+            </span>
+            {!hoveredPanel && selectedPart?.autoAdjusted && (
+              <span className="px-1 py-[0.5px] rounded bg-sky-500/25 border border-sky-400/50 text-sky-300 text-[8px] font-extrabold uppercase tracking-wider shrink-0">
+                AUTO-ADJ
+              </span>
+            )}
           </div>
           <div className="font-bold text-white truncate">
             {hoveredPanel

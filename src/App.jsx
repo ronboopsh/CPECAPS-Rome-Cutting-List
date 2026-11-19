@@ -384,6 +384,10 @@ export default function App() {
       return {
         ...p,
         isOrnament: Boolean(p.isOrnament),
+        autoAdjusted: Boolean(p.autoAdjusted),
+        adjustmentNote: p.adjustmentNote || '',
+        originalDimsMm: p.originalDimsMm || null,
+        totalTrimMm: p.totalTrimMm || 0,
         meshUuids: Array.isArray(p.meshUuids)
           ? p.meshUuids
           : p.meshUuid
@@ -421,6 +425,14 @@ export default function App() {
     setIsConsolidated(stats.duplicateRowsEliminated > 0)
     setAggregationStats(stats)
     setSelectedId(consolidatedParts[0]?.id || null)
+
+    const adjustedRows = consolidatedParts.filter((p) => p.autoAdjusted)
+    if (adjustedRows.length > 0) {
+      const adjustedPieces = adjustedRows.reduce((sum, p) => sum + (Number(p.qty) || 1), 0)
+      triggerToast(
+        `Auto-adjusted ${adjustedPieces} intersecting ${adjustedPieces === 1 ? 'panel' : 'panels'} to clear 3D overlaps`
+      )
+    }
   }
 
   const handleModelUpload = (file) => {

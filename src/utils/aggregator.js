@@ -448,6 +448,10 @@ export function getRawSelectedParts(selectedJobIds = ['Job #1', 'Job #2'], sched
         num: `#${idx}`,
         qty: Number(part.qty) || 1,
         isOrnament: Boolean(part.isOrnament),
+        autoAdjusted: Boolean(part.autoAdjusted),
+        adjustmentNote: part.adjustmentNote || '',
+        originalDimsMm: part.originalDimsMm || null,
+        totalTrimMm: part.totalTrimMm || 0,
         meshUuids: existingUuids,
         source_jobs: Array.isArray(part.source_jobs) && part.source_jobs.length > 0
           ? [...part.source_jobs]
@@ -525,6 +529,10 @@ export function aggregateProjectCutlists(partsList = [], options = {}) {
         h: normH,
         qty: itemQty,
         isOrnament: Boolean(item.isOrnament),
+        autoAdjusted: Boolean(item.autoAdjusted),
+        adjustmentNote: item.adjustmentNote || '',
+        originalDimsMm: item.originalDimsMm || null,
+        totalTrimMm: item.totalTrimMm || 0,
         mergedCount: 1,
         source_jobs: Array.from(new Set(itemJobs)),
         partNames: [item.part || item.panelRole || 'Cabinet Panel'],
@@ -535,6 +543,19 @@ export function aggregateProjectCutlists(partsList = [], options = {}) {
       matchedGroup.qty += itemQty
       matchedGroup.mergedCount += 1
       matchedGroup.isOrnament = Boolean(matchedGroup.isOrnament || item.isOrnament)
+      matchedGroup.autoAdjusted = Boolean(
+        matchedGroup.autoAdjusted || item.autoAdjusted
+      )
+      if (!matchedGroup.adjustmentNote && item.adjustmentNote) {
+        matchedGroup.adjustmentNote = item.adjustmentNote
+      }
+      if (!matchedGroup.originalDimsMm && item.originalDimsMm) {
+        matchedGroup.originalDimsMm = item.originalDimsMm
+      }
+      matchedGroup.totalTrimMm = Math.max(
+        matchedGroup.totalTrimMm || 0,
+        item.totalTrimMm || 0
+      )
       matchedGroup.l = Math.max(matchedGroup.l, normL)
       matchedGroup.w = Math.max(matchedGroup.w, normW)
       matchedGroup.h = Math.max(matchedGroup.h, normH)
@@ -577,6 +598,10 @@ export function aggregateProjectCutlists(partsList = [], options = {}) {
       panelRole: unifiedName,
       qty: syncedQty,
       isOrnament: Boolean(entry.isOrnament),
+      autoAdjusted: Boolean(entry.autoAdjusted),
+      adjustmentNote: entry.adjustmentNote || '',
+      originalDimsMm: entry.originalDimsMm || null,
+      totalTrimMm: entry.totalTrimMm || 0,
       meshUuids,
       panelIndices: entry.panelIndices || [],
       consolidated: isConsolidated,

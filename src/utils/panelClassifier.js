@@ -1456,8 +1456,9 @@ export function decomposeCompoundGeometry(geometry, parentWorldBox, defaultThick
       }
 
       const rawThick = b.pMax - b.pMin
+      const isSingleFaceShell = rawThick < MIN_BOARD_THICKNESS_MM
       const thickness =
-        rawThick >= MIN_BOARD_THICKNESS_MM && rawThick <= MAX_BOARD_THICKNESS_MM
+        !isSingleFaceShell && rawThick <= MAX_BOARD_THICKNESS_MM
           ? rawThick
           : defaultThickness
       const pCenter = (b.pMin + b.pMax) * 0.5
@@ -1535,6 +1536,8 @@ export function decomposeCompoundGeometry(geometry, parentWorldBox, defaultThick
         axis,
         pMin: pCenter - thickness * 0.5,
         pMax: pCenter + thickness * 0.5,
+        shellPlane: pCenter,
+        isSingleFaceShell,
         parentBox: parentWorldBox.clone(),
         wasDecomposedFromCompound: true,
         preservedNonRectGeometry: false,
@@ -1657,6 +1660,12 @@ function deduplicateAndMergeRedundantPanels(meshes, assemblyBox) {
       vMax = box.max.z
     }
 
+    const isSingleFace = Boolean(mesh.userData?.isSingleFaceShell)
+    const shellP =
+      typeof mesh.userData?.shellPlane === 'number'
+        ? mesh.userData.shellPlane
+        : pCenter
+
     return {
       mesh,
       box,
@@ -1670,6 +1679,9 @@ function deduplicateAndMergeRedundantPanels(meshes, assemblyBox) {
       pCenter,
       pMin,
       pMax,
+      isSingleFace,
+      minShellPlane: isSingleFace ? shellP : pMin,
+      maxShellPlane: isSingleFace ? shellP : pMax,
       uMin,
       uMax,
       vMin,
@@ -1715,7 +1727,47 @@ function deduplicateAndMergeRedundantPanels(meshes, assemblyBox) {
       )
       const overlap = compute2DOverlapRatio(primaryTop, candidate, 8)
       if (verticalGap <= 28 && overlap > 0.25) {
+        primaryTop.minShellPlane = Math.min(
+          primaryTop.minShellPlane,
+          candidate.minShellPlane
+        )
+        primaryTop.maxShellPlane = Math.max(
+          primaryTop.maxShellPlane,
+          candidate.maxShellPlane
+        )
         candidate.discard = true
+      }
+    }
+
+    const topSpan = primaryTop.maxShellPlane - primaryTop.minShellPlane
+    if (topSpan >= MIN_BOARD_THICKNESS_MM && topSpan <= MAX_BOARD_THICKNESS_MM + 4) {
+      const newCenterY =
+        (primaryTop.minShellPlane + primaryTop.maxShellPlane) * 0.5
+      const newGeo = new THREE.BoxGeometry(
+        primaryTop.dx,
+        topSpan,
+        primaryTop.dz
+      )
+      newGeo.computeVertexNormals()
+      newGeo.computeBoundingBox()
+      primaryTop.mesh.geometry?.dispose()
+      primaryTop.mesh.geometry = newGeo
+      primaryTop.mesh.position.y = newCenterY
+      primaryTop.mesh.updateWorldMatrix(true, false)
+      primaryTop.box.setFromObject(primaryTop.mesh)
+      primaryTop.box.getCenter(primaryTop.center)
+      primaryTop.dy = topSpan
+      primaryTop.pCenter = newCenterY
+      primaryTop.pMin = primaryTop.box.min.y
+      primaryTop.pMax = primaryTop.box.max.y
+      primaryTop.wasPairedShell = true
+      primaryTop.mesh.userData = {
+        ...primaryTop.mesh.userData,
+        localDimensionsMm: {
+          dx: primaryTop.dx,
+          dy: topSpan,
+          dz: primaryTop.dz,
+        },
       }
     }
   }
@@ -1760,8 +1812,47 @@ function deduplicateAndMergeRedundantPanels(meshes, assemblyBox) {
       if (centerDist <= 25) {
         const overlap = compute2DOverlapRatio(primary, secondary, 8)
         if (overlap > 0.35) {
-          if (centerDist > 1.0 && centerDist <= 22.0) {
-            const combinedMid = (primary.pCenter + secondary.pCenter) * 0.5
+          // Track true outer & inner plane bounds across all merged coplanar/opposing faces
+          // so merging 2 half-width cubby floors with 1 full-width ceiling never double-averages!
+          primary.minShellPlane = Math.min(
+            primary.minShellPlane,
+            secondary.minShellPlane
+          )
+          primary.maxShellPlane = Math.max(
+            primary.maxShellPlane,
+            secondary.maxShellPlane
+          )
+          const planeSpan = primary.maxShellPlane - primary.minShellPlane
+
+          if (planeSpan > 1.0 && planeSpan <= MAX_BOARD_THICKNESS_MM) {
+            const combinedMid =
+              (primary.minShellPlane + primary.maxShellPlane) * 0.5
+
+            // If paired from single-wall shell faces, rebuild thickness to match exact face separation
+            if (
+              primary.isSingleFace &&
+              secondary.isSingleFace &&
+              planeSpan >= MIN_BOARD_THICKNESS_MM
+            ) {
+              const newThick = planeSpan
+              const sx = primary.axis === 'X' ? newThick : primary.dx
+              const sy = primary.axis === 'Y' ? newThick : primary.dy
+              const sz = primary.axis === 'Z' ? newThick : primary.dz
+              const newGeo = new THREE.BoxGeometry(sx, sy, sz)
+              newGeo.computeVertexNormals()
+              newGeo.computeBoundingBox()
+              primary.mesh.geometry?.dispose()
+              primary.mesh.geometry = newGeo
+              primary.dx = sx
+              primary.dy = sy
+              primary.dz = sz
+              primary.wasPairedShell = true
+              primary.mesh.userData = {
+                ...primary.mesh.userData,
+                localDimensionsMm: { dx: sx, dy: sy, dz: sz },
+              }
+            }
+
             if (primary.axis === 'Y') {
               primary.mesh.position.y = combinedMid
             } else if (primary.axis === 'X') {
@@ -1773,6 +1864,18 @@ function deduplicateAndMergeRedundantPanels(meshes, assemblyBox) {
             primary.box.setFromObject(primary.mesh)
             primary.box.getCenter(primary.center)
             primary.pCenter = combinedMid
+            primary.pMin =
+              primary.axis === 'Y'
+                ? primary.box.min.y
+                : primary.axis === 'X'
+                ? primary.box.min.x
+                : primary.box.min.z
+            primary.pMax =
+              primary.axis === 'Y'
+                ? primary.box.max.y
+                : primary.axis === 'X'
+                ? primary.box.max.x
+                : primary.box.max.z
           }
           secondary.discard = true
         }
@@ -2130,6 +2233,8 @@ export function normalizeLoadedCabinetModel(loadedModel) {
             rawOriginalName: rawName,
             parentCompoundBox: board.parentBox,
             wasDecomposed: true,
+            isSingleFaceShell: Boolean(board.isSingleFaceShell),
+            shellPlane: board.shellPlane ?? null,
             preservedNonRectGeometry: Boolean(board.preservedNonRectGeometry),
             subPanels: board.subPanels || null,
             isHardware: false,
@@ -2241,8 +2346,363 @@ export function normalizeLoadedCabinetModel(loadedModel) {
     structuralBox
   )
 
+  // 5. Panel-to-Panel Intersection Resolution (trims smaller-intrusion panel flush)
+  resolvePanelIntersections(deduplicatedMeshes, structuralBox)
+
   loadedModel.updateMatrixWorld(true)
   return { meshes: deduplicatedMeshes, hardwareMeshes, scaleToMm }
+}
+
+/**
+ * Detects and resolves 3D volumetric intersections between rectangular sheet panels.
+ *
+ * Rule:
+ *   - For any pair of intersecting sheet panels (overlap > 1 mm on all 3 axes and
+ *     >= 5 mm along the shared span axis), evaluate how much each panel intrudes
+ *     into the other along the mating face.
+ *   - The panel with the smaller intersection going into the other panel is trimmed
+ *     flush against the mating face (preserving its own board thickness).
+ *   - Exact corner ties (e.g., 18 mm vs 18 mm flush corner) break by structural
+ *     hierarchy (outer Top/Bottom caps > outer Side Panels > Back/Front > interior)
+ *     and then larger face area.
+ *   - Updates each trimmed mesh's BufferGeometry, position, and `localDimensionsMm`
+ *     in place, and tags `mesh.userData.autoAdjusted = true` with `originalDimsMm`
+ *     and `adjustmentNote` so the 3D preview and Cutting List stay synchronized.
+ */
+export function resolvePanelIntersections(panelMeshes = [], structuralBox = null) {
+  if (!Array.isArray(panelMeshes) || panelMeshes.length < 2) {
+    return { adjustedCount: 0 }
+  }
+
+  const OVERLAP_EPS = 1.0 // mm — ignore sub-millimeter flush contact / float noise
+  const MIN_SHARED_SPAN_OVERLAP = 5.0 // mm — ignore tiny corner point grazes
+  const AXES = ['x', 'y', 'z']
+  // Allow up to 25 mm inset from overall bounds so outer back/side panels behind an
+  // overhanging top panel still retain their outer-carcass structural priority.
+  const edgeTol = 25.0
+
+  // Build mutable AABB + metadata records for each panel mesh
+  const records = panelMeshes.map((mesh) => {
+    mesh.updateWorldMatrix(true, false)
+    const box = new THREE.Box3().setFromObject(mesh)
+    const size = new THREE.Vector3()
+    box.getSize(size)
+
+    const minExtent = Math.min(size.x, size.y, size.z)
+    let thinAxis = 'y'
+    if (size.x <= size.y && size.x <= size.z) thinAxis = 'x'
+    else if (size.z <= size.x && size.z <= size.y) thinAxis = 'z'
+
+    const spanAxes = AXES.filter((a) => a !== thinAxis)
+    const area = size[spanAxes[0]] * size[spanAxes[1]]
+
+    // Structural priority used ONLY to break exact equal-depth corner ties (e.g. 18mm vs 18mm)
+    let priority = 0
+    if (structuralBox && !structuralBox.isEmpty()) {
+      if (
+        thinAxis === 'y' &&
+        (box.max.y >= structuralBox.max.y - edgeTol ||
+          box.min.y <= structuralBox.min.y + edgeTol)
+      ) {
+        priority = 3 // Outer Top / Bottom horizontal caps
+      } else if (
+        thinAxis === 'x' &&
+        (box.min.x <= structuralBox.min.x + edgeTol ||
+          box.max.x >= structuralBox.max.x - edgeTol)
+      ) {
+        priority = 2 // Outer Left / Right side panels
+      } else if (
+        thinAxis === 'z' &&
+        (box.min.z <= structuralBox.min.z + edgeTol ||
+          box.max.z >= structuralBox.max.z - edgeTol)
+      ) {
+        priority = 1 // Outer Back / Front panels
+      }
+    }
+
+    // Only trim axis-aligned rectangular sheet boards (never curved ornaments or L-shaped non-rect meshes)
+    const canTrim =
+      !mesh.userData?.isHardware &&
+      !mesh.userData?.isOrnament &&
+      !mesh.userData?.preservedNonRectGeometry &&
+      !(Array.isArray(mesh.userData?.subPanels) && mesh.userData.subPanels.length > 1) &&
+      minExtent >= MIN_VALID_THICKNESS_MM &&
+      minExtent <= MAX_BOARD_THICKNESS_MM + 2.0
+
+    const sortedOrig = [size.x, size.y, size.z]
+      .map((v) => Math.max(2, Math.round(v)))
+      .sort((a, b) => b - a)
+
+    return {
+      mesh,
+      min: { x: box.min.x, y: box.min.y, z: box.min.z },
+      max: { x: box.max.x, y: box.max.y, z: box.max.z },
+      size: { x: size.x, y: size.y, z: size.z },
+      origSize: { x: size.x, y: size.y, z: size.z },
+      origDims: { l: sortedOrig[0], w: sortedOrig[1], h: sortedOrig[2] },
+      thinAxis,
+      area,
+      priority,
+      canTrim,
+      totalTrimMm: 0,
+      geometryCloned: false,
+    }
+  })
+
+  // Evaluate single-end trim option for `mover` along `axis` to clear `blocker`
+  const computeEndTrimOption = (mover, blocker, axis) => {
+    if (!mover.canTrim || mover.thinAxis === axis) return null
+
+    const maxAllowedTrim = Math.max(45, blocker.size[axis] * 2.2)
+    const minAllowedRemaining = Math.max(
+      MIN_SHEET_WIDTH_MM,
+      mover.origSize[axis] * 0.5
+    )
+
+    const candidates = []
+
+    // Option 1: Trim mover's min end up to blocker.max[axis]
+    if (mover.max[axis] > blocker.max[axis] + 1.0 && mover.min[axis] < blocker.max[axis]) {
+      const amount = blocker.max[axis] - mover.min[axis]
+      const remaining = mover.max[axis] - blocker.max[axis]
+      if (
+        amount > OVERLAP_EPS &&
+        amount <= maxAllowedTrim &&
+        remaining >= minAllowedRemaining
+      ) {
+        candidates.push({
+          axis,
+          side: 'min',
+          newEdge: blocker.max[axis],
+          amount,
+        })
+      }
+    }
+
+    // Option 2: Trim mover's max end down to blocker.min[axis]
+    if (mover.min[axis] < blocker.min[axis] - 1.0 && mover.max[axis] > blocker.min[axis]) {
+      const amount = mover.max[axis] - blocker.min[axis]
+      const remaining = blocker.min[axis] - mover.min[axis]
+      if (
+        amount > OVERLAP_EPS &&
+        amount <= maxAllowedTrim &&
+        remaining >= minAllowedRemaining
+      ) {
+        candidates.push({
+          axis,
+          side: 'max',
+          newEdge: blocker.min[axis],
+          amount,
+        })
+      }
+    }
+
+    if (candidates.length === 0) return null
+    candidates.sort((a, b) => a.amount - b.amount)
+    return candidates[0]
+  }
+
+  // Apply an axis trim directly to the mesh's BufferGeometry + world position
+  const applyTrimToRecord = (rec, trim) => {
+    const { axis, side, newEdge, amount } = trim
+    const oldMin = rec.min[axis]
+    const oldMax = rec.max[axis]
+    const newMin = side === 'min' ? newEdge : oldMin
+    const newMax = side === 'max' ? newEdge : oldMax
+    const newSize = newMax - newMin
+    if (newSize < MIN_SHEET_WIDTH_MM) return false
+
+    const mesh = rec.mesh
+    if (!rec.geometryCloned && mesh.geometry) {
+      mesh.geometry = mesh.geometry.clone()
+      rec.geometryCloned = true
+    }
+
+    const geo = mesh.geometry
+    const posAttr = geo?.attributes?.position
+    if (!posAttr) return false
+
+    geo.computeBoundingBox()
+    const bb = geo.boundingBox
+    if (!bb) return false
+
+    const localMin = bb.min[axis]
+    const localMax = bb.max[axis]
+    const localSpan = localMax - localMin
+    if (localSpan < 1e-3) return false
+
+    const newWorldCenter = (newMin + newMax) * 0.5
+    const getCoord = axis === 'x' ? 'getX' : axis === 'y' ? 'getY' : 'getZ'
+    const setCoord = axis === 'x' ? 'setX' : axis === 'y' ? 'setY' : 'setZ'
+
+    for (let i = 0; i < posAttr.count; i++) {
+      const oldVal = posAttr[getCoord](i)
+      const u = (oldVal - localMin) / localSpan
+      posAttr[setCoord](i, (u - 0.5) * newSize)
+    }
+
+    posAttr.needsUpdate = true
+    mesh.position[axis] = newWorldCenter
+    geo.computeBoundingBox()
+    geo.computeBoundingSphere()
+    geo.computeVertexNormals()
+    mesh.updateWorldMatrix(true, false)
+
+    rec.min[axis] = newMin
+    rec.max[axis] = newMax
+    rec.size[axis] = newSize
+    const spanAxes = AXES.filter((a) => a !== rec.thinAxis)
+    rec.area = rec.size[spanAxes[0]] * rec.size[spanAxes[1]]
+    rec.totalTrimMm += amount
+
+    mesh.userData = {
+      ...mesh.userData,
+      localDimensionsMm: {
+        dx: rec.size.x,
+        dy: rec.size.y,
+        dz: rec.size.z,
+      },
+    }
+    return true
+  }
+
+  // Evaluate a pair of panels and resolve if they intersect
+  const tryResolvePair = (recA, recB, allowExactTies) => {
+    const ovX = Math.min(recA.max.x, recB.max.x) - Math.max(recA.min.x, recB.min.x)
+    const ovY = Math.min(recA.max.y, recB.max.y) - Math.max(recA.min.y, recB.min.y)
+    const ovZ = Math.min(recA.max.z, recB.max.z) - Math.max(recA.min.z, recB.min.z)
+
+    if (ovX <= OVERLAP_EPS || ovY <= OVERLAP_EPS || ovZ <= OVERLAP_EPS) {
+      return false
+    }
+
+    const overlaps = { x: ovX, y: ovY, z: ovZ }
+
+    // Case 1: Perpendicular panels (`tA !== tB`)
+    if (recA.thinAxis !== recB.thinAxis) {
+      const sharedAxis = AXES.find(
+        (a) => a !== recA.thinAxis && a !== recB.thinAxis
+      )
+      if (overlaps[sharedAxis] < MIN_SHARED_SPAN_OVERLAP) {
+        return false
+      }
+
+      const trimA = computeEndTrimOption(recA, recB, recB.thinAxis)
+      const trimB = computeEndTrimOption(recB, recA, recA.thinAxis)
+      if (!trimA && !trimB) return false
+
+      // Unambiguous: only one panel can be end-trimmed
+      if (trimA && !trimB) return applyTrimToRecord(recA, trimA)
+      if (trimB && !trimA) return applyTrimToRecord(recB, trimB)
+
+      // Check if both panels intrude across essentially the full thickness of the mating board
+      // (a flush board-thickness joint, e.g. 17mm shelf vs 18mm outer back panel).
+      // In that case, treat it as a joint tie so outer carcass walls (Top/Bottom > Side > Back)
+      // keep their full visual span and interior shelves/dividers trim cleanly behind them.
+      const ratioA = trimA.amount / Math.max(1, recB.size[recB.thinAxis])
+      const ratioB = trimB.amount / Math.max(1, recA.size[recA.thinAxis])
+      const isFullThicknessJoint =
+        ratioA >= 0.75 &&
+        ratioB >= 0.75 &&
+        Math.abs(trimA.amount - trimB.amount) <= 5.0
+
+      if (!isFullThicknessJoint) {
+        // Genuine partial intrusion — the panel with the smaller intrusion adjusts
+        const diff = trimA.amount - trimB.amount
+        if (diff < -0.5) return applyTrimToRecord(recA, trimA)
+        if (diff > 0.5) return applyTrimToRecord(recB, trimB)
+      }
+
+      // Full-thickness flush joint / tie: wait for tie-break pass
+      if (!allowExactTies) return false
+
+      if (recA.priority !== recB.priority) {
+        return recA.priority < recB.priority
+          ? applyTrimToRecord(recA, trimA)
+          : applyTrimToRecord(recB, trimB)
+      }
+      return recA.area <= recB.area
+        ? applyTrimToRecord(recA, trimA)
+        : applyTrimToRecord(recB, trimB)
+    }
+
+    // Case 2: Parallel panels (`tA === tB`) overlapping slightly along a span edge
+    const spanAxes = AXES.filter((a) => a !== recA.thinAxis)
+    const [uAxis, vAxis] = spanAxes
+    const overlapArea = overlaps[uAxis] * overlaps[vAxis]
+    const minArea = Math.max(1, Math.min(recA.area, recB.area))
+    // Never trim nested/co-located duplicate faces (> 65% area overlap)
+    if (overlapArea / minArea > 0.65) return false
+
+    // Pick the span axis with the smaller overlap as the trim direction
+    const trimAxis = overlaps[uAxis] <= overlaps[vAxis] ? uAxis : vAxis
+    const otherSpanAxis = trimAxis === uAxis ? vAxis : uAxis
+    if (overlaps[otherSpanAxis] < MIN_SHARED_SPAN_OVERLAP) return false
+
+    const trimA = computeEndTrimOption(recA, recB, trimAxis)
+    const trimB = computeEndTrimOption(recB, recA, trimAxis)
+    if (!trimA && !trimB) return false
+    if (trimA && !trimB) return applyTrimToRecord(recA, trimA)
+    if (trimB && !trimA) return applyTrimToRecord(recB, trimB)
+
+    const diff = trimA.amount - trimB.amount
+    if (diff < -0.5) return applyTrimToRecord(recA, trimA)
+    if (diff > 0.5) return applyTrimToRecord(recB, trimB)
+    if (!allowExactTies) return false
+
+    if (recA.priority !== recB.priority) {
+      return recA.priority < recB.priority
+        ? applyTrimToRecord(recA, trimA)
+        : applyTrimToRecord(recB, trimB)
+    }
+    return recA.area <= recB.area
+      ? applyTrimToRecord(recA, trimA)
+      : applyTrimToRecord(recB, trimB)
+  }
+
+  // Run 2 iterations: resolve unambiguous smaller-intrusion overlaps first, then corner ties
+  for (let pass = 0; pass < 2; pass++) {
+    let anyChanged = false
+    for (const allowExactTies of [false, true]) {
+      for (let i = 0; i < records.length; i++) {
+        for (let j = i + 1; j < records.length; j++) {
+          if (tryResolvePair(records[i], records[j], allowExactTies)) {
+            anyChanged = true
+          }
+        }
+      }
+    }
+    if (!anyChanged) break
+  }
+
+  // Stamp adjustment metadata onto every modified panel mesh
+  let adjustedCount = 0
+  records.forEach((rec) => {
+    if (rec.totalTrimMm >= OVERLAP_EPS) {
+      adjustedCount += 1
+      const sortedFinal = [rec.size.x, rec.size.y, rec.size.z]
+        .map((v) => Math.max(2, Math.round(v)))
+        .sort((a, b) => b - a)
+      const orig = rec.origDims
+      const trimRounded = Math.round(rec.totalTrimMm)
+      const note = `Auto-adjusted to clear panel overlap: ${orig.l} × ${orig.w} × ${orig.h} mm → ${sortedFinal[0]} × ${sortedFinal[1]} × ${sortedFinal[2]} mm (-${trimRounded} mm)`
+
+      rec.mesh.userData = {
+        ...rec.mesh.userData,
+        autoAdjusted: true,
+        originalDimsMm: orig,
+        adjustedDimsMm: {
+          l: sortedFinal[0],
+          w: sortedFinal[1],
+          h: sortedFinal[2],
+        },
+        totalTrimMm: trimRounded,
+        adjustmentNote: note,
+      }
+    }
+  })
+
+  return { adjustedCount }
 }
 
 /**
@@ -2406,6 +2866,10 @@ export function classifyCabinetPanels(loadedModel, options = {}) {
       role,
       axisType,
       isOrnament: false,
+      autoAdjusted: Boolean(child.userData?.autoAdjusted),
+      adjustmentNote: child.userData?.adjustmentNote || '',
+      originalDimsMm: child.userData?.originalDimsMm || null,
+      totalTrimMm: child.userData?.totalTrimMm || 0,
       subPanels: child.userData?.subPanels || null,
       explodeDir,
     }

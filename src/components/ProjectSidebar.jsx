@@ -3,7 +3,6 @@ import {
   CheckSquare,
   Square,
   GitMerge,
-  ArrowDownWideNarrow,
   Plus,
   Check,
   X,
@@ -165,7 +164,7 @@ export default function ProjectSidebar({
           })}
         </div>
 
-        {/* Multi-Project Consolidation & Table-Saw Rip Sorter Controls */}
+        {/* Multi-Project Consolidation Control */}
         <div className="px-3 pb-3 pt-2 border-t border-gray-100 dark:border-zinc-800/90 space-y-1.5">
           <button
             type="button"
@@ -180,32 +179,12 @@ export default function ProjectSidebar({
             <span>Consolidate Jobs</span>
           </button>
 
-          <button
-            type="button"
-            onClick={onSortForRipCuts}
-            className={`w-full py-2 px-2.5 rounded-xl text-[11.5px] font-extrabold flex items-center justify-center gap-1.5 border transition-all ${
-              isRipSorted
-                ? 'bg-[#FACC15] text-zinc-950 border-[#EAB308] shadow-xs'
-                : 'bg-zinc-100 dark:bg-zinc-800/90 hover:bg-[#FACC15] dark:hover:bg-[#FACC15] text-zinc-900 dark:text-zinc-100 hover:text-zinc-950 dark:hover:text-zinc-950 border-zinc-300 dark:border-zinc-700 hover:border-[#EAB308]'
-            }`}
-          >
-            <ArrowDownWideNarrow className="w-3.5 h-3.5 stroke-[2.3]" />
-            <span>Sort for Rip Cuts (W ↓)</span>
-          </button>
-
-          {/* Compact Consolidation / Rip Status Indicators */}
-          {(isConsolidated || isRipSorted) && (
-            <div className="pt-1 space-y-1">
-              {isConsolidated && (
-                <div className="text-[10px] font-mono font-bold text-amber-800 dark:text-[#FACC15] bg-yellow-50 dark:bg-[#FACC15]/10 border border-yellow-200 dark:border-[#FACC15]/30 rounded-lg px-2 py-1">
-                  Merged {aggregationStats?.duplicateRowsEliminated ?? 0} duplicate rows
-                </div>
-              )}
-              {isRipSorted && (
-                <div className="text-[10px] font-mono font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 rounded-lg px-2 py-1">
-                  Rip Seq Active · {aggregationStats?.fenceSetupsCount ?? 1} fence setups
-                </div>
-              )}
+          {/* Compact Consolidation Status Indicator */}
+          {isConsolidated && (
+            <div className="pt-1">
+              <div className="text-[10px] font-mono font-bold text-amber-800 dark:text-[#FACC15] bg-yellow-50 dark:bg-[#FACC15]/10 border border-yellow-200 dark:border-[#FACC15]/30 rounded-lg px-2 py-1">
+                Merged {aggregationStats?.duplicateRowsEliminated ?? 0} duplicate rows
+              </div>
             </div>
           )}
         </div>
