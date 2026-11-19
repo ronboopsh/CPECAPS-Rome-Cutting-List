@@ -1,6 +1,8 @@
+
 import React from 'react'
 import { CheckCircle2, Sun, Moon } from 'lucide-react'
 import RomeLogo from './RomeLogo'
+import StatusLed from './StatusLed'
 
 const TOP_NAV_ITEMS = [
   { label: 'Home', hasDropdown: false },
@@ -56,6 +58,7 @@ export default function Header({
 
           {/* Right Side: Interactive Light / Dark Mode Theme Toggle Button */}
           <div className="flex items-center gap-3">
+            <StatusLed />
             {toastMessage && (
               <div className="hidden md:flex items-center gap-1.5 text-xs font-semibold text-zinc-950 bg-[#FACC15] px-3 py-0.5 rounded-full">
                 <CheckCircle2 className="w-3.5 h-3.5 text-zinc-950" />
@@ -144,3 +147,4 @@ export default function Header({
     </header>
   )
 }
+ 

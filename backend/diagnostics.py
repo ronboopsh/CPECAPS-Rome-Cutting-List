@@ -1,3 +1,4 @@
+
 """
 ==============================================================================
 DIAGNOSTICS (`backend/diagnostics.py`)
@@ -5,7 +6,7 @@ Rome Cabinets - Automated Cutting List & Shop-Floor Coordinator
 ==============================================================================
 Software equivalent of the "status LEDs, error codes, logs, watchdogs" a
 hardware product would have:
-
+ 
   * Status LEDs ....... run_self_test() -> GREEN / AMBER / RED per subsystem
   * Error codes ....... ERROR_CODES registry (RC-xxx), attached to every fault
   * Logs .............. structured JSON-lines file  logs/rome_diag.jsonl
@@ -13,17 +14,18 @@ hardware product would have:
   * Latency budgets ... run_stage() warns (RC-901) when a stage exceeds the
                         budgets in PROJECT_CONTEXT.md (CAD/aggregation 1 s,
                         OCR 5 s)
-
+ 
 No third-party dependency is required for the core (psutil is optional).
-
+ 
 CLI (works without FastAPI):
     python -m backend.diagnostics            # LED panel (exit code 0/1/2)
     python -m backend.diagnostics --tail 20  # last 20 log events
     python -m backend.diagnostics --codes    # error-code reference
+    python -m backend.diagnostics --explain RC-101   # first repair action for one code
 """
-
+ 
 from __future__ import annotations
-
+ 
 import ast
 import importlib
 import json
@@ -37,22 +39,22 @@ import time
 from collections import deque
 from logging.handlers import RotatingFileHandler
 from typing import Any, Callable, Deque, Dict, List, Optional
-
+ 
 # --------------------------------------------------------------------------
 # Paths / constants
 # --------------------------------------------------------------------------
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOG_DIR = os.environ.get("ROME_LOG_DIR", os.path.join(ROOT_DIR, "logs"))
 LOG_PATH = os.path.join(LOG_DIR, "rome_diag.jsonl")
-
+ 
 GREEN, AMBER, RED = "GREEN", "AMBER", "RED"
 _LED_RANK = {GREEN: 0, AMBER: 1, RED: 2}
-
+ 
 # Latency budgets (seconds) from PROJECT_CONTEXT.md section 5
 STAGE_BUDGET_S = {"cad": 1.0, "aggregation": 1.0, "inventory": 1.0, "ocr": 5.0}
 RAM_LIMIT_MB = 500.0
 MIN_FREE_DISK_MB = 200.0
-
+ 
 # --------------------------------------------------------------------------
 # Error-code registry:  code -> (title, what it means / first repair action)
 # --------------------------------------------------------------------------
@@ -94,12 +96,12 @@ ERROR_CODES: Dict[str, tuple] = {
     "RC-999": ("Unclassified fault",
                "Not mapped to a code yet. Read the 'msg' field and add a rule to classify()."),
 }
-
-
+ 
+ 
 class WatchdogTimeout(TimeoutError):
     """Raised when a stage exceeds its watchdog limit."""
-
-
+ 
+ 
 # --------------------------------------------------------------------------
 # Structured logging  (JSON lines, rotating, + in-memory ring buffer)
 # --------------------------------------------------------------------------
@@ -110,8 +112,8 @@ _log_lock = threading.Lock()
 _RECENT: Deque[Dict[str, Any]] = deque(maxlen=500)
 _SUBSCRIBERS: List[Callable[[Dict[str, Any]], None]] = []
 _handler_ready = False
-
-
+ 
+ 
 def _ensure_handler() -> None:
     global _handler_ready
     if _handler_ready:
@@ -121,19 +123,19 @@ def _ensure_handler() -> None:
     h.setFormatter(logging.Formatter("%(message)s"))
     _logger.addHandler(h)
     _handler_ready = True
-
-
+ 
+ 
 def subscribe(callback: Callable[[Dict[str, Any]], None]) -> None:
     """Register a listener called for every event (used by the fault harness
     to timestamp the exact moment a fault is *detected*)."""
     _SUBSCRIBERS.append(callback)
-
-
+ 
+ 
 def unsubscribe(callback: Callable[[Dict[str, Any]], None]) -> None:
     if callback in _SUBSCRIBERS:
         _SUBSCRIBERS.remove(callback)
-
-
+ 
+ 
 def log_event(level: str, code: str, stage: str, msg: str, **extra: Any) -> Dict[str, Any]:
     """Write one structured event. Returns the event dict."""
     ev = {
@@ -155,8 +157,8 @@ def log_event(level: str, code: str, stage: str, msg: str, **extra: Any) -> Dict
         except Exception:  # a broken listener must never break the pipeline
             pass
     return ev
-
-
+ 
+ 
 def tail(n: int = 20) -> List[Dict[str, Any]]:
     """Last n events from the log file (survives restarts)."""
     if not os.path.exists(LOG_PATH):
@@ -170,8 +172,8 @@ def tail(n: int = 20) -> List[Dict[str, Any]]:
         except json.JSONDecodeError:
             out.append({"level": "ERROR", "code": "RC-999", "stage": "log", "msg": "corrupt log line"})
     return out
-
-
+ 
+ 
 # --------------------------------------------------------------------------
 # Classification: exception -> error code
 # --------------------------------------------------------------------------
@@ -196,25 +198,25 @@ def classify(exc: BaseException, stage: str) -> str:
     if stage == "inventory" and isinstance(exc, (KeyError, ValueError, TypeError)):
         return "RC-401"
     return "RC-999"
-
-
+ 
+ 
 # --------------------------------------------------------------------------
 # Watchdog + guarded stage runner
 # --------------------------------------------------------------------------
 def run_with_watchdog(fn: Callable[..., Any], timeout_s: float, *args: Any, **kwargs: Any) -> Any:
     """Run fn in a worker thread; raise WatchdogTimeout if it does not finish.
-
+ 
     NOTE: Python cannot kill a thread. The hung worker is a daemon thread and
     is abandoned; the *request* is released and the fault is logged. For a hard
     kill, run the stage in a subprocess (see recommendations)."""
     box: Dict[str, Any] = {}
-
+ 
     def _target() -> None:
         try:
             box["value"] = fn(*args, **kwargs)
         except BaseException as e:  # noqa: BLE001 - re-raised below
             box["error"] = e
-
+ 
     t = threading.Thread(target=_target, daemon=True, name=f"wd-{getattr(fn, '__name__', 'fn')}")
     t.start()
     t.join(timeout_s)
@@ -223,8 +225,8 @@ def run_with_watchdog(fn: Callable[..., Any], timeout_s: float, *args: Any, **kw
     if "error" in box:
         raise box["error"]
     return box.get("value")
-
-
+ 
+ 
 def run_stage(stage: str, fn: Callable[..., Any], *args: Any,
               timeout_s: Optional[float] = None, run_id: Optional[str] = None, **kwargs: Any) -> Any:
     """Run one pipeline stage with logging, error code, latency budget and
@@ -247,8 +249,8 @@ def run_stage(stage: str, fn: Callable[..., Any], *args: Any,
     else:
         log_event("INFO", "RC-000", stage, "ok", duration_ms=round(dur * 1000, 2), run_id=run_id)
     return result
-
-
+ 
+ 
 # --------------------------------------------------------------------------
 # Status-LED self test
 # --------------------------------------------------------------------------
@@ -260,8 +262,8 @@ def _check(name: str, fn: Callable[[], tuple]) -> Dict[str, Any]:
         led, code, detail = RED, classify(exc, name), f"{type(exc).__name__}: {exc}"
     return {"name": name, "led": led, "code": code, "detail": detail,
             "ms": round((time.perf_counter() - t0) * 1000, 2)}
-
-
+ 
+ 
 def _defined_names(path: str) -> set:
     """Top-level names a module defines/imports, read statically (no import)."""
     tree = ast.parse(open(path, encoding="utf-8").read())
@@ -279,13 +281,14 @@ def _defined_names(path: str) -> set:
             for a in node.names:
                 names.add((a.asname or a.name).split(".")[0])
     return names
-
-
-def _chk_gateway() -> tuple:
+ 
+ 
+def _chk_gateway(main_path: Optional[str] = None) -> tuple:
     """Every `from backend.X import a, b` in main.py must resolve to a name
     that backend/X.py really defines. Static (AST) check: no imports executed,
-    so it works even when FastAPI/OpenCV are not installed."""
-    main_path = os.path.join(ROOT_DIR, "backend", "main.py")
+    so it works even when FastAPI/OpenCV are not installed.
+    `main_path` lets tests point the check at a copy of main.py."""
+    main_path = main_path or os.path.join(ROOT_DIR, "backend", "main.py")
     tree = ast.parse(open(main_path, encoding="utf-8").read())
     missing: List[str] = []
     for node in ast.walk(tree):
@@ -299,8 +302,8 @@ def _chk_gateway() -> tuple:
     if missing:
         return RED, "RC-501", "main.py imports undefined names: " + ", ".join(missing)
     return GREEN, "RC-000", "all main.py imports resolve"
-
-
+ 
+ 
 def _chk_deps() -> tuple:
     import importlib.util as iu
     core = {"fastapi": "fastapi", "uvicorn": "uvicorn", "cv2": "opencv-python", "numpy": "numpy"}
@@ -310,8 +313,8 @@ def _chk_deps() -> tuple:
     if iu.find_spec("psutil") is None:
         return AMBER, "RC-505", "optional package missing: psutil (RAM check disabled)"
     return GREEN, "RC-000", "core Python packages importable"
-
-
+ 
+ 
 def _chk_cad() -> tuple:
     from backend.cad_parser import sanitize_and_extract_part
     ok = sanitize_and_extract_part({"l": 750, "w": 500, "h": 18, "part": "selftest"})
@@ -321,8 +324,8 @@ def _chk_cad() -> tuple:
     except ValueError:
         pass
     return GREEN, "RC-000", f"sanitizer OK ({ok['l']}x{ok['w']}x{ok['h']}), rejects zero-thickness"
-
-
+ 
+ 
 def _chk_ocr() -> tuple:
     from backend import ocr_service as o
     if o.HAS_EASYOCR:
@@ -330,16 +333,16 @@ def _chk_ocr() -> tuple:
     if o.HAS_TESSERACT:
         return AMBER, "RC-204", "engine: tesseract (fallback; EasyOCR not installed)"
     return RED, "RC-202", "no OCR engine installed"
-
-
+ 
+ 
 def _chk_aggregation() -> tuple:
     from backend.aggregator import DEFAULT_PROJECT_SCHEDULES, aggregate_project_schedules
     res = aggregate_project_schedules(DEFAULT_PROJECT_SCHEDULES)
     if not res:
         return RED, "RC-301", "aggregator returned nothing for default schedules"
     return GREEN, "RC-000", f"aggregated {len(DEFAULT_PROJECT_SCHEDULES)} default jobs"
-
-
+ 
+ 
 def _chk_inventory() -> tuple:
     from backend.inventory_db import get_inventory_items
     required = ("id", "type", "l", "w", "h", "material")
@@ -350,8 +353,8 @@ def _chk_inventory() -> tuple:
     if not items:
         return AMBER, "RC-401", "inventory is empty"
     return GREEN, "RC-000", f"{len(items)} stock/remnant records valid"
-
-
+ 
+ 
 def _chk_system() -> tuple:
     tmp = tempfile.gettempdir()
     probe = os.path.join(tmp, f".rome_probe_{os.getpid()}")
@@ -372,8 +375,17 @@ def _chk_system() -> tuple:
     except ImportError:
         notes.append("psutil not installed (RAM not checked)")
     return led, code, "; ".join(notes)
-
-
+ 
+ 
+def run_gateway_check(main_path: Optional[str] = None) -> Dict[str, Any]:
+    """Run only the gateway import-contract check and log it (used by the
+    fault harness to inject/repair a broken main.py without touching the repo)."""
+    c = _check("gateway", lambda: _chk_gateway(main_path))
+    lvl = {GREEN: "INFO", AMBER: "WARN", RED: "ERROR"}[c["led"]]
+    log_event(lvl, c["code"], "selftest.gateway", c["detail"], led=c["led"])
+    return c
+ 
+ 
 def run_self_test() -> Dict[str, Any]:
     checks = [
         _check("deps", _chk_deps),
@@ -390,8 +402,8 @@ def run_self_test() -> Dict[str, Any]:
         log_event(lvl, c["code"], f"selftest.{c['name']}", c["detail"], led=c["led"])
     return {"overall": overall, "checks": checks,
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
-
-
+ 
+ 
 # --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
@@ -402,12 +414,24 @@ def format_panel(report: Dict[str, Any]) -> str:
     for c in report["checks"]:
         lines.append(f"{dot[c['led']]}  {c['name']:<12} {c['code']}  {c['detail']}  [{c['ms']} ms]")
     return "\n".join(lines)
-
-
+ 
+ 
 def main(argv: List[str]) -> int:
     if "--codes" in argv:
         for code, (title, hint) in ERROR_CODES.items():
             print(f"{code}  {title}\n        -> {hint}")
+        return 0
+    if "--explain" in argv:
+        i = argv.index("--explain")
+        code = argv[i + 1].upper() if len(argv) > i + 1 else ""
+        if code not in ERROR_CODES:
+            print(f"Unknown code '{code}'. Run --codes for the list.")
+            return 2
+        title, hint = ERROR_CODES[code]
+        print(f"{code}  {title}\n  Fix: {hint}")
+        recent = [e for e in tail(200) if e.get("code") == code][-3:]
+        for ev in recent:
+            print(f"  seen: {ev.get('ts')} [{ev.get('stage')}] {ev.get('msg')}")
         return 0
     if "--tail" in argv:
         n = int(argv[argv.index("--tail") + 1]) if len(argv) > argv.index("--tail") + 1 else 20
@@ -417,9 +441,10 @@ def main(argv: List[str]) -> int:
     report = run_self_test()
     print(format_panel(report))
     return {GREEN: 0, AMBER: 1, RED: 2}[report["overall"]]
-
-
+ 
+ 
 if __name__ == "__main__":
     if ROOT_DIR not in sys.path:
         sys.path.insert(0, ROOT_DIR)
     raise SystemExit(main(sys.argv[1:]))
+ 

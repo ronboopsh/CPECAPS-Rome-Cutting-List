@@ -1,4 +1,5 @@
 
+
 """
 backend/main.py
 FastAPI Application & API Gateway for Rome Cabinets Shop-Floor Coordinator.
@@ -13,11 +14,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
  
 # Import partner backend services
-from backend.cad_parser import parse_cad_file
+from backend.gateway_adapters import (
+    parse_cad_file, aggregate_projects, get_inventory_stock, match_remnants,
+)
 from backend.ocr_service import process_ocr_sheet
-from backend.aggregator import aggregate_projects
-from backend.inventory_db import get_inventory_stock, match_remnants
-from backend.diagnostics import run_stage
+from backend.diagnostics import run_stage, run_self_test, log_event
 from backend.diag_router import router as diagnostics_router
  
 app = FastAPI(
@@ -28,6 +29,17 @@ app = FastAPI(
  
 # Diagnostics: /api/diagnostics/health (status LEDs), /logs, /codes
 app.include_router(diagnostics_router)
+
+
+@app.on_event("startup")
+def startup_self_test():
+    """Run the LED self-test at boot and log it. Set ROME_STRICT_START=1 to
+    refuse to start while any subsystem is RED (fail fast, shorter MTTD)."""
+    report = run_self_test()
+    reds = [f"{c['name']} {c['code']}" for c in report["checks"] if c["led"] == "RED"]
+    print(f"[diagnostics] startup self-test: {report['overall']}" + (f" ({', '.join(reds)})" if reds else ""))
+    if reds and os.environ.get("ROME_STRICT_START") == "1":
+        raise RuntimeError("Startup self-test RED: " + ", ".join(reds))
  
 # Enable CORS for Vite frontend development
 app.add_middleware(
@@ -125,7 +137,13 @@ async def upload_ocr(file: UploadFile = File(...), project_id: str = "job-ocr-de
  
         # Returns extracted row parts + image URL / base64 for side-by-side preview
         ocr_result = run_stage("ocr", process_ocr_sheet, temp_path, project_id=project_id, timeout_s=30.0)
+        if not ocr_result.get("parts"):
+            log_event("WARN", "RC-203", "ocr", "image read but 0 cutlist rows found", run_id=project_id)
+            ocr_result["warning"] = "[RC-203] Image read but no cutlist rows found. Retake photo flat and well-lit."
         return ocr_result
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail=f"[{getattr(e, 'rc_code', 'RC-999')}] {e}")
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"[{getattr(e, 'rc_code', 'RC-999')}] OCR pipeline error: {e}")
     finally:
@@ -153,6 +171,9 @@ async def aggregate(payload: AggregateRequest):
     try:
         consolidated_parts = run_stage("aggregation", aggregate_projects, payload.project_ids, timeout_s=5.0)
         return consolidated_parts
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail=f"[{getattr(e, 'rc_code', 'RC-999')}] {e}")
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"[{getattr(e, 'rc_code', 'RC-999')}] Aggregation error: {e}")
  

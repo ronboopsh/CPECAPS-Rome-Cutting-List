@@ -1,22 +1,23 @@
+
 """
 ==============================================================================
 FAULT-INJECTION HARNESS  (tests/fault_injection.py)
 Measures MTTD and MTTR for the Rome Cabinets pipeline using backend/diagnostics.py
-
+ 
     python3 tests/fault_injection.py            # full run (n=30 fast / n=10 slow)
     python3 tests/fault_injection.py --quick    # n=5 smoke run
-
+ 
 Definitions used in the report
   t_inject  : the faulty input/state is handed to the pipeline stage
   t_detect  : diagnostics emits an ERROR event carrying the expected RC-code
   t_repair  : the documented corrective action has been applied AND the stage
               re-run reports success (RC-000 / no exception)
   MTTD = mean(t_detect - t_inject)      MTTR = mean(t_repair - t_detect)
-
+ 
 The repair step is the SAME runbook an operator follows, executed by script
 (read the code + message, apply the fix, re-run). It therefore measures the
 software side of repair; human reaction/reading time is NOT included.
-
+ 
 Outputs
   tests/logs/CPECAPS_Fault_Metrics.csv     one row per run
   tests/logs/CPECAPS_Fault_Summary.json    statistics + steps + tools
@@ -24,7 +25,7 @@ Outputs
 ==============================================================================
 """
 from __future__ import annotations
-
+ 
 import copy
 import csv
 import json
@@ -36,41 +37,41 @@ import sys
 import tempfile
 import threading
 import time
-
+ 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 LOG_ROOT = os.path.join(ROOT, "tests", "logs")
 os.environ["ROME_LOG_DIR"] = os.path.join(LOG_ROOT, "diag")  # before importing diagnostics
 os.makedirs(os.environ["ROME_LOG_DIR"], exist_ok=True)
-
+ 
 from backend import diagnostics as diag  # noqa: E402
 from backend.aggregator import DEFAULT_PROJECT_SCHEDULES, aggregate_project_schedules  # noqa: E402
 from backend.cad_parser import parse_cad_payload  # noqa: E402
 from backend.inventory_db import get_inventory_items, match_remnant_scrap  # noqa: E402
 from backend.ocr_service import process_ocr_sheet  # noqa: E402
-
+ 
 T975 = {4: 2.776, 9: 2.262, 29: 2.045}  # t_{0.025, df}
-
-
+ 
+ 
 # ---------------------------------------------------------------- helpers ---
 class Detector:
     """Captures the first diagnostics event with the expected code."""
-
+ 
     def __init__(self, expected_code: str):
         self.expected = expected_code
         self.t_detect = None
         self.event = None
-
+ 
     def __call__(self, ev):
         if self.t_detect is None and ev.get("code") == self.expected and ev.get("level") in ("ERROR", "WARN"):
             self.t_detect, self.event = ev["t_mono"], ev
-
-
+ 
+ 
 def good_cad_payload():
     return {"components": [
         {"part": f"Panel {i}", "l": 700 + i, "w": 400 + i, "h": 18, "qty": 2} for i in range(1, 6)]}
-
-
+ 
+ 
 def make_good_image(path):
     import cv2
     import numpy as np
@@ -81,8 +82,8 @@ def make_good_image(path):
     for i, r in enumerate(rows):
         cv2.putText(img, r, (40, 100 + i * 110), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 0, 0), 4, cv2.LINE_AA)
     cv2.imwrite(path, img)
-
-
+ 
+ 
 # ------------------------------------------------------------------ faults ---
 def fault_cad_zero_thickness(ctx):
     payload = good_cad_payload()
@@ -100,8 +101,8 @@ def fault_cad_zero_thickness(ctx):
     payload["components"][idx]["h"] = 18
     diag.run_stage("cad", parse_cad_payload, payload)
     return t_inject, det.t_detect, time.perf_counter()
-
-
+ 
+ 
 def fault_cad_malformed(ctx):
     payload = {"parts": good_cad_payload()["components"]}  # wrong root key
     det = Detector("RC-102"); diag.subscribe(det)
@@ -116,8 +117,8 @@ def fault_cad_malformed(ctx):
     fixed = {"components": payload["parts"]}
     diag.run_stage("cad", parse_cad_payload, fixed)
     return t_inject, det.t_detect, time.perf_counter()
-
-
+ 
+ 
 def fault_ocr_corrupt_image(ctx):
     bad = os.path.join(ctx["tmp"], "corrupt.png")
     with open(bad, "wb") as f:
@@ -134,14 +135,14 @@ def fault_ocr_corrupt_image(ctx):
     res = diag.run_stage("ocr", process_ocr_sheet, ctx["good_img"], timeout_s=30.0)
     assert len(res["parts"]) >= 1
     return t_inject, det.t_detect, time.perf_counter()
-
-
+ 
+ 
 def fault_stage_hang(ctx):
     cancel = threading.Event()
-
+ 
     def hung_aggregation():  # simulates a deadlocked stage
         cancel.wait(30)
-
+ 
     det = Detector("RC-900"); diag.subscribe(det)
     t_inject = time.perf_counter()
     try:
@@ -154,8 +155,8 @@ def fault_stage_hang(ctx):
     cancel.set()
     diag.run_stage("aggregation", aggregate_project_schedules, DEFAULT_PROJECT_SCHEDULES, timeout_s=1.0)
     return t_inject, det.t_detect, time.perf_counter()
-
-
+ 
+ 
 def fault_inventory_corrupt(ctx):
     inv = copy.deepcopy(get_inventory_items())
     next(i for i in inv if i["type"] == "REMNANT").pop("h")  # drop thickness from a remnant
@@ -171,21 +172,28 @@ def fault_inventory_corrupt(ctx):
     # --- runbook: restore the record from the pristine stock table, re-run
     diag.run_stage("inventory", match_remnant_scrap, part, get_inventory_items())
     return t_inject, det.t_detect, time.perf_counter()
-
-
+ 
+ 
 def fault_gateway_contract(ctx):
-    """REAL defect in the shipped repo: main.py imports names that do not exist.
-    Detect-only: no repair is applied here (needs a code change by the owner)."""
-    det = Detector("RC-501")
-    diag.subscribe(det)
+    """main.py imports a name that does not exist (the defect found in the
+    original repo, now reproduced on a temp copy so the shipped main.py stays fixed)."""
+    good = open(os.path.join(ROOT, "backend", "main.py"), encoding="utf-8").read()
+    bad_path = os.path.join(ctx["tmp"], "main_broken.py")
+    with open(bad_path, "w", encoding="utf-8") as f:  # rename one imported function
+        f.write(good.replace("parse_cad_file,", "parse_cad_file_v2,", 1))
+    det = Detector("RC-501"); diag.subscribe(det)
     t_inject = time.perf_counter()
-    rep = diag.run_self_test()
+    rep = diag.run_gateway_check(bad_path)
     diag.unsubscribe(det)
-    gw = next(c for c in rep["checks"] if c["name"] == "gateway")
-    assert gw["code"] == "RC-501" and "parse_cad_file" in gw["detail"], gw
-    return t_inject, det.t_detect, None
-
-
+    assert rep["code"] == "RC-501" and "parse_cad_file_v2" in rep["detail"], rep
+    # --- runbook: read the undefined name from the message, restore the correct import, re-check
+    name = re.search(r"backend\.\w+\.(\w+)", rep["detail"]).group(1)
+    with open(bad_path, "w", encoding="utf-8") as f:
+        f.write(open(bad_path, encoding="utf-8").read().replace(name, name.replace("_v2", "")))
+    assert diag.run_gateway_check(bad_path)["led"] == "GREEN"
+    return t_inject, det.t_detect, time.perf_counter()
+ 
+ 
 FAULTS = [
     # id, title, fn, expected code, n, tools, steps
     dict(id="F1", title="CAD part with zero thickness", fn=fault_cad_zero_thickness, code="RC-101", n=30,
@@ -213,14 +221,14 @@ FAULTS = [
          steps=["Remnant record loses its 'h' field", "Remnant match fails; log shows [RC-401] KeyError 'h'",
                 "Open inventory_db.py, find the record with the missing field",
                 "Restore the field; re-run match; log shows RC-000"]),
-    dict(id="F6", title="Gateway import contract broken (real repo defect)", fn=fault_gateway_contract,
-         code="RC-501", n=30, detect_only=True,
+    dict(id="F6", title="Gateway import contract broken", fn=fault_gateway_contract,
+         code="RC-501", n=30,
          tools=["python -m backend.diagnostics (AST import-contract check)", "time.perf_counter()"],
          steps=["Start API: import fails in backend/main.py", "Run self-test: gateway LED RED, RC-501 lists the 4 names",
-                "Owner adds/renames the functions (not applied in this run)"]),
+                "Restore the correct import name in main.py; re-run self-test; gateway LED GREEN"]),
 ]
-
-
+ 
+ 
 # ------------------------------------------------------------------- stats ---
 def stats(xs):
     n = len(xs)
@@ -232,13 +240,13 @@ def stats(xs):
     half = t * sd / math.sqrt(n) if n > 1 else 0.0
     return {"n": n, "mean": mean, "sd": sd, "median": statistics.median(xs), "min": min(xs),
             "max": max(xs), "ci95_low": mean - half, "ci95_high": mean + half}
-
-
+ 
+ 
 def main(quick=False):
     ctx = {"tmp": tempfile.mkdtemp(prefix="rome_fx_")}
     ctx["good_img"] = os.path.join(ctx["tmp"], "good.png")
     make_good_image(ctx["good_img"])
-
+ 
     rows, summary = [], {"generated": time.strftime("%Y-%m-%d %H:%M:%S"), "faults": []}
     for f in FAULTS:
         n = 5 if quick else f["n"]
@@ -271,7 +279,7 @@ def main(quick=False):
         print(f"{f['id']} {f['title']:<52} n={n:<3} MTTD={entry['mttd_ms'].get('mean', float('nan')):9.2f} ms"
               f"  MTTR={entry['mttr_ms'].get('mean', float('nan')) if mttr else float('nan'):9.2f} ms"
               f"  detect {detected_ok}/{n}")
-
+ 
     os.makedirs(LOG_ROOT, exist_ok=True)
     with open(os.path.join(LOG_ROOT, "CPECAPS_Fault_Metrics.csv"), "w", newline="") as fh:
         w = csv.writer(fh)
@@ -280,7 +288,7 @@ def main(quick=False):
     with open(os.path.join(LOG_ROOT, "CPECAPS_Fault_Summary.json"), "w") as fh:
         json.dump(summary, fh, indent=2)
     print("wrote tests/logs/CPECAPS_Fault_Metrics.csv and CPECAPS_Fault_Summary.json")
-
-
+ 
+ 
 if __name__ == "__main__":
     main(quick="--quick" in sys.argv)
